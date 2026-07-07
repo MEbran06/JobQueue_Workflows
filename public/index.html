@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Workflow Builder</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0d1117; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem;
+      background: #161b22; border-bottom: 1px solid #2d3748; flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; color: #f8fafc; margin-right: 0.5rem; }
+    header input { background: #0d1117; border: 1px solid #2d3748; border-radius: 0.4rem; color: #e2e8f0; padding: 0.35rem 0.6rem; font-size: 0.8rem; width: 140px; }
+    header button { background: #3b82f6; color: #fff; border: none; border-radius: 0.4rem; padding: 0.35rem 0.8rem; font-size: 0.8rem; cursor: pointer; font-weight: 500; }
+    header button:hover { background: #2563eb; }
+    header button.run { background: #10b981; }
+    header button.run:hover { background: #059669; }
+    #save-status { font-size: 0.8rem; color: #4ade80; }
+
+    /* ── Main layout ── */
+    main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Palette ── */
+    #palette {
+      width: 130px; flex-shrink: 0; background: #161b22; border-right: 1px solid #2d3748;
+      padding: 1rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    #palette h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; margin-bottom: 0.25rem; }
+    .palette-item {
+      padding: 0.6rem 0.75rem; border-radius: 0.5rem; cursor: grab; font-size: 0.8rem;
+      font-weight: 500; border: 1px solid; user-select: none;
+    }
+    .palette-item:active { cursor: grabbing; }
+    .palette-item.ai_prompt  { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+    .palette-item.http_request { background: #064e3b; border-color: #10b981; color: #6ee7b7; }
+
+    /* ── Canvas ── */
+    #canvas-wrap {
+      flex: 1; position: relative; overflow: hidden; background: #0d1117;
+      background-image: radial-gradient(circle, #1e2733 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    #canvas-wrap.connecting { cursor: crosshair; }
+    #svg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+    #nodes-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+    /* ── Nodes ── */
+    .node {
+      position: absolute; width: 185px; background: #161b22;
+      border: 2px solid #2d3748; border-radius: 0.6rem; cursor: pointer;
+      user-select: none; transition: box-shadow 0.15s;
+    }
+    .node:hover { box-shadow: 0 0 0 1px #475569; }
+    .node.selected { box-shadow: 0 0 0 2px #3b82f6; }
+    .node.connectable:hover { box-shadow: 0 0 0 2px #f59e0b; }
+    .node-top {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.4rem 0.5rem; border-radius: 0.45rem 0.45rem 0 0; font-size: 0.75rem; font-weight: 600;
+    }
+    .node-label { padding: 0.35rem 0.5rem; font-size: 0.72rem; color: #64748b; }
+    .del { background: none; border: none; color: #4b5563; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px; }
+    .del:hover { color: #f87171; }
+    .port-out {
+      position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; background: #1e2433; border: 2px solid #3b82f6;
+      border-radius: 50%; cursor: pointer; pointer-events: auto; z-index: 2; transition: background 0.15s;
+    }
+    .port-out:hover { background: #3b82f6; }
+    .port-in {
+      position: absolute; left: -7px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; background: #1e2433; border: 2px solid #475569;
+      border-radius: 50%; z-index: 2;
+    }
+
+    /* ── Properties sidebar ── */
+    #sidebar {
+      width: 240px; flex-shrink: 0; background: #161b22; border-left: 1px solid #2d3748;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #sidebar h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; padding: 0.75rem 1rem 0.5rem; border-bottom: 1px solid #2d3748; }
+    #props-content { flex: 1; overflow-y: auto; padding: 0.75rem; }
+    #props-content label { display: block; font-size: 0.7rem; color: #64748b; margin-bottom: 0.25rem; margin-top: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    #props-content label:first-child { margin-top: 0; }
+    #props-content input, #props-content select, #props-content textarea {
+      width: 100%; background: #0d1117; border: 1px solid #2d3748; border-radius: 0.4rem;
+      color: #e2e8f0; padding: 0.4rem 0.5rem; font-size: 0.8rem; font-family: inherit;
+    }
+    #props-content textarea { resize: vertical; min-height: 70px; font-family: monospace; font-size: 0.75rem; }
+    .config-row { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; align-items: flex-start; }
+    .config-row input { flex: 0 0 65px; }
+    .config-row textarea { flex: 1; min-height: 36px; }
+    .config-row button { background: none; border: none; color: #4b5563; cursor: pointer; font-size: 1rem; padding: 0.25rem; line-height: 1; flex-shrink: 0; }
+    .config-row button:hover { color: #f87171; }
+    .add-btn { display: block; width: 100%; margin-top: 0.5rem; background: #1e2433; border: 1px dashed #2d3748; color: #4b5563; border-radius: 0.4rem; padding: 0.35rem; font-size: 0.75rem; cursor: pointer; }
+    .add-btn:hover { color: #94a3b8; border-color: #475569; }
+    .hint { color: #4b5563; font-size: 0.8rem; text-align: center; padding: 2rem 0; }
+
+    /* ── Bottom panel ── */
+    #bottom {
+      height: 220px; flex-shrink: 0; display: flex;
+      border-top: 1px solid #2d3748; background: #161b22;
+    }
+    .bottom-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #2d3748; }
+    .bottom-panel:last-child { border-right: none; }
+    .bottom-panel h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; padding: 0.5rem 0.75rem; border-bottom: 1px solid #2d3748; flex-shrink: 0; }
+    .panel-body { flex: 1; overflow-y: auto; padding: 0.75rem; }
+    #json-preview { font-family: monospace; font-size: 0.72rem; color: #94a3b8; white-space: pre; }
+
+    /* ── Run inputs ── */
+    .input-row { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .input-row input { flex: 1; background: #0d1117; border: 1px solid #2d3748; border-radius: 0.4rem; color: #e2e8f0; padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+    .input-row button { background: none; border: none; color: #4b5563; cursor: pointer; font-size: 1rem; }
+    .input-row button:hover { color: #f87171; }
+    #run-controls { display: flex; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #2d3748; margin-top: 0.25rem; }
+    #run-controls button { flex: 1; background: #10b981; color: #fff; border: none; border-radius: 0.4rem; padding: 0.4rem; font-size: 0.8rem; cursor: pointer; font-weight: 500; }
+    #run-controls button:hover { background: #059669; }
+    .sm-btn { font-size: 0.72rem; background: #1e2433; border: 1px solid #2d3748; color: #64748b; border-radius: 0.4rem; padding: 0.25rem 0.5rem; cursor: pointer; }
+    .sm-btn:hover { color: #94a3b8; }
+
+    /* ── Results ── */
+    .result-step { border: 1px solid #2d3748; border-radius: 0.4rem; padding: 0.5rem; margin-bottom: 0.5rem; }
+    .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem; font-size: 0.8rem; font-weight: 600; }
+    .result-output { font-family: monospace; font-size: 0.72rem; color: #94a3b8; white-space: pre-wrap; max-height: 80px; overflow-y: auto; }
+    .badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 500; }
+    .badge.waiting   { background: #1e2433; color: #64748b; }
+    .badge.active    { background: #1e3a5f; color: #60a5fa; }
+    .badge.completed { background: #052e16; color: #4ade80; }
+    .badge.failed    { background: #450a0a; color: #f87171; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Workflow Builder</h1>
+  <input id="wf-id" placeholder="workflow-id" value="my-workflow">
+  <input id="wf-name" placeholder="Workflow Name" value="My Workflow">
+  <button onclick="saveWorkflow()">Save</button>
+  <button class="run" onclick="runWorkflow()">▶ Run</button>
+  <span id="save-status"></span>
+</header>
+
+<main>
+  <!-- Palette -->
+  <div id="palette">
+    <h2>Steps</h2>
+    <div class="palette-item ai_prompt" draggable="true" data-type="ai_prompt" ondragstart="onPaletteDrag(event)">🤖 AI Prompt</div>
+    <div class="palette-item http_request" draggable="true" data-type="http_request" ondragstart="onPaletteDrag(event)">🌐 HTTP Request</div>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-wrap" ondragover="event.preventDefault()" ondrop="onDrop(event)" onclick="onCanvasClick()">
+    <svg id="svg-layer"></svg>
+    <div id="nodes-layer"></div>
+  </div>
+
+  <!-- Properties -->
+  <div id="sidebar">
+    <h2>Properties</h2>
+    <div id="props-content"><p class="hint">Click a node to edit it</p></div>
+  </div>
+</main>
+
+<div id="bottom">
+  <!-- JSON preview -->
+  <div class="bottom-panel" style="flex:1.4">
+    <h2>JSON Preview</h2>
+    <div class="panel-body"><pre id="json-preview"></pre></div>
+  </div>
+
+  <!-- Run inputs -->
+  <div class="bottom-panel" style="flex:0.8">
+    <h2>Run Inputs</h2>
+    <div class="panel-body">
+      <div id="run-inputs"></div>
+      <button class="sm-btn" onclick="addRunInput()">+ Add input</button>
+      <div id="run-controls"><button onclick="runWorkflow()">▶ Run Workflow</button></div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="bottom-panel" style="flex:1.4">
+    <h2>Run Output</h2>
+    <div class="panel-body"><div id="results"><p class="hint">Run a workflow to see output</p></div></div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────
+  const NODE_W = 185, NODE_H = 66;
+  let nodes = [], selected = null, connectingFrom = null, nodeCounter = 0;
+  let dragging = null, dragOffset = { x: 0, y: 0 };
+  let pollTimer = null;
+
+  const TYPE_META = {
+    ai_prompt:    { label: 'AI Prompt',    icon: '🤖', color: '#3b82f6', bg: '#1e3a5f20' },
+    http_request: { label: 'HTTP Request', icon: '🌐', color: '#10b981', bg: '#06403020' },
+  };
+
+  function defaultConfig(type) {
+    if (type === 'ai_prompt')    return { prompt: '' };
+    if (type === 'http_request') return { url: '', method: 'GET' };
+    return {};
+  }
+
+  // ── Node operations ────────────────────────────────
+  function addNode(type, x, y) {
+    const slug = type === 'ai_prompt' ? 'ai' : 'http';
+    const id = `${slug}-${++nodeCounter}`;
+    nodes.push({ id, type, config: defaultConfig(type), x, y, next: null });
+    selected = id;
+    render();
+  }
+
+  function deleteNode(id) {
+    nodes.forEach(n => { if (n.next === id) n.next = null; });
+    nodes = nodes.filter(n => n.id !== id);
+    if (selected === id) selected = null;
+    if (connectingFrom === id) connectingFrom = null;
+    render();
+  }
+
+  function connectNodes(fromId, toId) {
+    if (fromId === toId) { connectingFrom = null; render(); return; }
+    const from = nodes.find(n => n.id === fromId);
+    if (from) from.next = toId;
+    connectingFrom = null;
+    render();
+  }
+
+  // ── Drag: move nodes on canvas ─────────────────────
+  function startDrag(e, node) {
+    dragging = node;
+    const rect = document.getElementById('canvas-wrap').getBoundingClientRect();
+    dragOffset = { x: e.clientX - rect.left - node.x, y: e.clientY - rect.top - node.y };
+  }
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const rect = document.getElementById('canvas-wrap').getBoundingClientRect();
+    dragging.x = Math.max(10, e.clientX - rect.left - dragOffset.x);
+    dragging.y = Math.max(10, e.clientY - rect.top - dragOffset.y);
+    // Fast update: just reposition the element + redraw connections
+    const el = document.getElementById(`node-${dragging.id}`);
+    if (el) { el.style.left = `${dragging.x}px`; el.style.top = `${dragging.y}px`; }
+    renderConnections();
+    renderJson();
+  });
+  document.addEventListener('mouseup', () => { dragging = null; });
+
+  // ── Drop from palette ──────────────────────────────
+  function onPaletteDrag(e) { e.dataTransfer.setData('type', e.currentTarget.dataset.type); }
+
+  function onDrop(e) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('type');
+    if (!type) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    addNode(type, e.clientX - rect.left - NODE_W / 2, e.clientY - rect.top - NODE_H / 2);
+  }
+
+  function onCanvasClick() {
+    if (connectingFrom) { connectingFrom = null; render(); }
+  }
+
+  // ── Port click: start/finish connection ────────────
+  function handlePortClick(e, nodeId) {
+    e.stopPropagation();
+    if (connectingFrom) {
+      connectNodes(connectingFrom, nodeId);
+    } else {
+      connectingFrom = nodeId;
+      render();
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && connectingFrom) { connectingFrom = null; render(); }
+  });
+
+  // ── Render ─────────────────────────────────────────
+  function render() {
+    renderNodes();
+    renderConnections();
+    renderProperties();
+    renderJson();
+    document.getElementById('canvas-wrap').classList.toggle('connecting', !!connectingFrom);
+  }
+
+  function renderNodes() {
+    const layer = document.getElementById('nodes-layer');
+    layer.innerHTML = '';
+    nodes.forEach(node => {
+      const meta = TYPE_META[node.type];
+      const isConnectable = connectingFrom && connectingFrom !== node.id;
+      const el = document.createElement('div');
+      el.className = `node${selected === node.id ? ' selected' : ''}${isConnectable ? ' connectable' : ''}`;
+      el.id = `node-${node.id}`;
+      el.style.cssText = `left:${node.x}px;top:${node.y}px;border-color:${meta.color};`;
+      el.innerHTML = `
+        <div class="node-top" style="background:${meta.bg}">
+          <span style="color:${meta.color}">${meta.icon} ${node.id}</span>
+          <button class="del" onclick="event.stopPropagation();deleteNode('${node.id}')">×</button>
+        </div>
+        <div class="node-label">${meta.label}</div>
+        <div class="port-in"></div>
+        <div class="port-out" onclick="handlePortClick(event,'${node.id}')"></div>
+      `;
+      el.addEventListener('mousedown', e => {
+        if (e.target.classList.contains('del') || e.target.classList.contains('port-out')) return;
+        if (connectingFrom && connectingFrom !== node.id) { connectNodes(connectingFrom, node.id); return; }
+        selected = node.id;
+        startDrag(e, node);
+        render();
+      });
+      layer.appendChild(el);
+    });
+  }
+
+  function renderConnections() {
+    const svg = document.getElementById('svg-layer');
+    const wrap = document.getElementById('canvas-wrap');
+    svg.setAttribute('viewBox', `0 0 ${wrap.clientWidth} ${wrap.clientHeight}`);
+
+    const paths = nodes.filter(n => n.next).map(node => {
+      const target = nodes.find(n => n.id === node.next);
+      if (!target) return '';
+      const x1 = node.x + NODE_W, y1 = node.y + NODE_H / 2;
+      const x2 = target.x,        y2 = target.y + NODE_H / 2;
+      const cp = Math.max(60, Math.abs(x2 - x1) / 2);
+      return `<path d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}"
+        stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#arr)"/>`;
+    }).join('');
+
+    svg.innerHTML = `
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#3b82f6"/>
+        </marker>
+      </defs>${paths}`;
+  }
+
+  function renderProperties() {
+    const panel = document.getElementById('props-content');
+    if (!selected) { panel.innerHTML = '<p class="hint">Click a node to edit it</p>'; return; }
+    const node = nodes.find(n => n.id === selected);
+    if (!node) return;
+    const rows = Object.entries(node.config).map(([k, v]) => `
+      <div class="config-row">
+        <input value="${k}" onchange="renameKey('${node.id}','${k}',this.value)" placeholder="key">
+        <textarea onchange="setVal('${node.id}','${k}',this.value)" placeholder="value">${v}</textarea>
+        <button onclick="removeKey('${node.id}','${k}')">×</button>
+      </div>`).join('');
+    panel.innerHTML = `
+      <label>Step ID</label>
+      <input value="${node.id}" onchange="renameNode('${node.id}',this.value)">
+      <label>Type</label>
+      <select onchange="changeType('${node.id}',this.value)">
+        <option value="ai_prompt"    ${node.type==='ai_prompt'?'selected':''}>🤖 AI Prompt</option>
+        <option value="http_request" ${node.type==='http_request'?'selected':''}>🌐 HTTP Request</option>
+      </select>
+      <label>Config</label>
+      ${rows}
+      <button class="add-btn" onclick="addKey('${node.id}')">+ Add field</button>`;
+  }
+
+  function renderJson() {
+    document.getElementById('json-preview').textContent = JSON.stringify(buildDefinition(), null, 2);
+  }
+
+  // ── Build definition from canvas state ─────────────
+  function buildDefinition() {
+    const id   = document.getElementById('wf-id').value   || 'my-workflow';
+    const name = document.getElementById('wf-name').value || 'My Workflow';
+    const pointed = new Set(nodes.filter(n => n.next).map(n => n.next));
+    const entry = nodes.find(n => !pointed.has(n.id));
+    return {
+      id, name,
+      entryStepId: entry?.id ?? '',
+      steps: nodes.map(n => ({ id: n.id, type: n.type, config: { ...n.config }, next: n.next }))
+    };
+  }
+
+  // ── Property panel actions ─────────────────────────
+  function renameNode(oldId, newId) {
+    newId = newId.trim();
+    if (!newId || newId === oldId || nodes.find(n => n.id === newId)) return;
+    nodes.forEach(n => { if (n.next === oldId) n.next = newId; });
+    const node = nodes.find(n => n.id === oldId);
+    if (node) node.id = newId;
+    if (selected === oldId) selected = newId;
+    if (connectingFrom === oldId) connectingFrom = newId;
+    render();
+  }
+  function changeType(id, type) {
+    const n = nodes.find(n => n.id === id);
+    if (n) { n.type = type; n.config = defaultConfig(type); }
+    render();
+  }
+  function renameKey(nodeId, oldKey, newKey) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (!n) return;
+    const val = n.config[oldKey]; delete n.config[oldKey]; n.config[newKey] = val ?? '';
+    renderJson();
+  }
+  function setVal(nodeId, key, val) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n) n.config[key] = val;
+    renderJson();
+  }
+  function addKey(nodeId) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n) n.config[`key${Object.keys(n.config).length + 1}`] = '';
+    render();
+  }
+  function removeKey(nodeId, key) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n) delete n.config[key];
+    render();
+  }
+
+  // ── Save & Run ─────────────────────────────────────
+  async function saveWorkflow() {
+    const def = buildDefinition();
+    if (!def.entryStepId) { alert('Add and connect at least one step first'); return; }
+    await fetch('/definitions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(def),
+    });
+    const s = document.getElementById('save-status');
+    s.textContent = 'Saved ✓';
+    setTimeout(() => s.textContent = '', 2000);
+  }
+
+  async function runWorkflow() {
+    await saveWorkflow();
+    const def = buildDefinition();
+    const input = {};
+    document.querySelectorAll('#run-inputs .input-row').forEach(row => {
+      const [k, v] = row.querySelectorAll('input');
+      if (k.value) input[k.value] = v.value;
+    });
+    const { runId } = await fetch('/runs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ definitionId: def.id, input }),
+    }).then(r => r.json());
+    document.getElementById('results').innerHTML = `<p class="hint" style="color:#60a5fa">Run started: ${runId}</p>`;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => pollRun(runId), 2000);
+    pollRun(runId);
+  }
+
+  async function pollRun(runId) {
+    const run = await fetch(`/runs/${runId}`).then(r => r.json());
+    document.getElementById('results').innerHTML = run.steps.map(s => `
+      <div class="result-step">
+        <div class="result-header">
+          <strong>${s.step}</strong>
+          <span class="badge ${s.state}">${s.state}</span>
+        </div>
+        ${s.output ? `<pre class="result-output">${s.output}</pre>` : ''}
+      </div>`).join('') || '<p class="hint">No steps yet</p>';
+    if (run.overallState === 'completed' || run.overallState === 'failed') clearInterval(pollTimer);
+  }
+
+  // ── Run inputs ─────────────────────────────────────
+  function addRunInput(key = '', val = '') {
+    const row = document.createElement('div');
+    row.className = 'input-row';
+    row.innerHTML = `<input placeholder="key" value="${key}"><input placeholder="value" value="${val}">
+      <button onclick="this.parentElement.remove()">×</button>`;
+    document.getElementById('run-inputs').appendChild(row);
+  }
+
+  addRunInput('topic', '');
+  render();
+</script>
+</body>
+</html>

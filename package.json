@@ -1,0 +1,28 @@
+{
+  "name": "jobqueue",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "server": "tsx src/server.ts",
+    "worker": "tsx src/worker.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "bullmq": "^5.79.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.0",
+    "@types/sqlite3": "^3.1.11",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3"
+  }
+}
