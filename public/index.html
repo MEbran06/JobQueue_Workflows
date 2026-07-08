@@ -34,8 +34,12 @@
       font-weight: 500; border: 1px solid; user-select: none;
     }
     .palette-item:active { cursor: grabbing; }
-    .palette-item.ai_prompt  { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+    .palette-item.ai_prompt    { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
     .palette-item.http_request { background: #064e3b; border-color: #10b981; color: #6ee7b7; }
+    .palette-item.branch       { background: #451a03; border-color: #f59e0b; color: #fcd34d; }
+    .palette-item.set_variable { background: #2e1065; border-color: #a78bfa; color: #c4b5fd; }
+    .palette-item.code         { background: #500724; border-color: #f472b6; color: #f9a8d4; }
+    .palette-item.loop         { background: #14532d; border-color: #4ade80; color: #86efac; }
 
     /* ── Canvas ── */
     #canvas-wrap {
@@ -148,6 +152,10 @@
     <h2>Steps</h2>
     <div class="palette-item ai_prompt" draggable="true" data-type="ai_prompt" ondragstart="onPaletteDrag(event)">🤖 AI Prompt</div>
     <div class="palette-item http_request" draggable="true" data-type="http_request" ondragstart="onPaletteDrag(event)">🌐 HTTP Request</div>
+    <div class="palette-item branch" draggable="true" data-type="branch" ondragstart="onPaletteDrag(event)">⟐ Branch</div>
+    <div class="palette-item set_variable" draggable="true" data-type="set_variable" ondragstart="onPaletteDrag(event)">= Set Var</div>
+    <div class="palette-item code" draggable="true" data-type="code" ondragstart="onPaletteDrag(event)">{ } Code</div>
+    <div class="palette-item loop" draggable="true" data-type="loop" ondragstart="onPaletteDrag(event)">↻ Loop</div>
   </div>
 
   <!-- Canvas -->
@@ -197,25 +205,43 @@
   const TYPE_META = {
     ai_prompt:    { label: 'AI Prompt',    icon: '🤖', color: '#3b82f6', bg: '#1e3a5f20' },
     http_request: { label: 'HTTP Request', icon: '🌐', color: '#10b981', bg: '#06403020' },
+    branch:       { label: 'Branch',       icon: '⟐',  color: '#f59e0b', bg: '#78350f20' },
+    set_variable: { label: 'Set Variable', icon: '=',  color: '#a78bfa', bg: '#2e106520' },
+    code:         { label: 'Code',         icon: '{}', color: '#f472b6', bg: '#50072420' },
+    loop:         { label: 'Loop',         icon: '↻',  color: '#4ade80', bg: '#14532d20' },
   };
 
   function defaultConfig(type) {
     if (type === 'ai_prompt')    return { prompt: '' };
     if (type === 'http_request') return { url: '', method: 'GET' };
+    if (type === 'set_variable') return { value: '' };
+    if (type === 'code')         return { code: 'return context["step-id"];' };
+    if (type === 'loop')         return { items: '', var: 'item', body: '' };
     return {};
+  }
+
+  function defaultBranches() {
+    return [
+      { condition: '{{stepId}} contains keyword', next: '' },
+      { condition: 'else', next: '' },
+    ];
   }
 
   // ── Node operations ────────────────────────────────
   function addNode(type, x, y) {
-    const slug = type === 'ai_prompt' ? 'ai' : 'http';
+    const slug = { ai_prompt: 'ai', http_request: 'http', branch: 'branch', set_variable: 'var', code: 'code', loop: 'loop' }[type] ?? type;
     const id = `${slug}-${++nodeCounter}`;
-    nodes.push({ id, type, config: defaultConfig(type), x, y, next: null });
+    nodes.push({ id, type, config: defaultConfig(type), branches: type === 'branch' ? defaultBranches() : [], x, y, next: null });
     selected = id;
     render();
   }
 
   function deleteNode(id) {
-    nodes.forEach(n => { if (n.next === id) n.next = null; });
+    nodes.forEach(n => {
+      if (n.next === id) n.next = null;
+      (n.branches ?? []).forEach(b => { if (b.next === id) b.next = ''; });
+      if (n.type === 'loop' && n.config.body === id) n.config.body = '';
+    });
     nodes = nodes.filter(n => n.id !== id);
     if (selected === id) selected = null;
     if (connectingFrom === id) connectingFrom = null;
@@ -324,22 +350,68 @@
     const wrap = document.getElementById('canvas-wrap');
     svg.setAttribute('viewBox', `0 0 ${wrap.clientWidth} ${wrap.clientHeight}`);
 
-    const paths = nodes.filter(n => n.next).map(node => {
-      const target = nodes.find(n => n.id === node.next);
-      if (!target) return '';
-      const x1 = node.x + NODE_W, y1 = node.y + NODE_H / 2;
-      const x2 = target.x,        y2 = target.y + NODE_H / 2;
-      const cp = Math.max(60, Math.abs(x2 - x1) / 2);
-      return `<path d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}"
-        stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#arr)"/>`;
-    }).join('');
+    const paths = [];
+    nodes.forEach(node => {
+      if (node.type === 'branch') {
+        (node.branches ?? []).forEach((branch, i) => {
+          if (!branch.next) return;
+          const target = nodes.find(n => n.id === branch.next);
+          if (!target) return;
+          const offset = (i - (node.branches.length - 1) / 2) * 16;
+          const x1 = node.x + NODE_W, y1 = node.y + NODE_H / 2 + offset;
+          const x2 = target.x,        y2 = target.y + NODE_H / 2;
+          const cp = Math.max(60, Math.abs(x2 - x1) / 2);
+          const label = branch.condition === 'else' ? 'else' : `branch ${i + 1}`;
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+          paths.push(`<path d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}"
+            stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arr-branch)"/>`);
+          paths.push(`<text x="${mx}" y="${my - 6}" fill="#f59e0b" font-size="10" text-anchor="middle">${label}</text>`);
+        });
+      } else if (node.type === 'loop' && node.config.body) {
+        // Draw body arrow (curved down) and after-loop arrow (straight right)
+        const bodyTarget = nodes.find(n => n.id === node.config.body);
+        if (bodyTarget) {
+          const x1 = node.x + NODE_W / 2, y1 = node.y + NODE_H;
+          const x2 = bodyTarget.x + NODE_W / 2, y2 = bodyTarget.y;
+          paths.push(`<path d="M${x1},${y1} C${x1},${y1+40} ${x2},${y2-40} ${x2},${y2}"
+            stroke="#4ade80" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arr-loop)"/>`);
+          const mx = (x1+x2)/2, my = (y1+y2)/2;
+          paths.push(`<text x="${mx+6}" y="${my}" fill="#4ade80" font-size="10" text-anchor="start">body</text>`);
+        }
+        if (node.next) {
+          const target = nodes.find(n => n.id === node.next);
+          if (target) {
+            const x1 = node.x + NODE_W, y1 = node.y + NODE_H / 2;
+            const x2 = target.x,        y2 = target.y + NODE_H / 2;
+            const cp = Math.max(60, Math.abs(x2 - x1) / 2);
+            paths.push(`<path d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}"
+              stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#arr)"/>`);
+            paths.push(`<text x="${(x1+x2)/2}" y="${(y1+y2)/2 - 6}" fill="#4ade80" font-size="10" text-anchor="middle">after</text>`);
+          }
+        }
+      } else if (node.next) {
+        const target = nodes.find(n => n.id === node.next);
+        if (!target) return;
+        const x1 = node.x + NODE_W, y1 = node.y + NODE_H / 2;
+        const x2 = target.x,        y2 = target.y + NODE_H / 2;
+        const cp = Math.max(60, Math.abs(x2 - x1) / 2);
+        paths.push(`<path d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}"
+          stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#arr)"/>`);
+      }
+    });
 
     svg.innerHTML = `
       <defs>
         <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
           <polygon points="0 0,8 3,0 6" fill="#3b82f6"/>
         </marker>
-      </defs>${paths}`;
+        <marker id="arr-branch" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#f59e0b"/>
+        </marker>
+        <marker id="arr-loop" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#4ade80"/>
+        </marker>
+      </defs>${paths.join('')}`;
   }
 
   function renderProperties() {
@@ -347,12 +419,47 @@
     if (!selected) { panel.innerHTML = '<p class="hint">Click a node to edit it</p>'; return; }
     const node = nodes.find(n => n.id === selected);
     if (!node) return;
-    const rows = Object.entries(node.config).map(([k, v]) => `
-      <div class="config-row">
-        <input value="${k}" onchange="renameKey('${node.id}','${k}',this.value)" placeholder="key">
-        <textarea onchange="setVal('${node.id}','${k}',this.value)" placeholder="value">${v}</textarea>
-        <button onclick="removeKey('${node.id}','${k}')">×</button>
-      </div>`).join('');
+    const otherNodes = nodes.filter(n => n.id !== node.id);
+
+    const branchRows = node.type === 'branch'
+      ? (node.branches ?? []).map((b, i) => `
+          <div class="config-row">
+            <input value="${b.condition}" placeholder="condition" style="flex:1.5"
+              onchange="setBranchCondition('${node.id}',${i},this.value)">
+            <select onchange="setBranchNext('${node.id}',${i},this.value)" style="flex:1">
+              <option value="">— next —</option>
+              ${otherNodes.map(n => `<option value="${n.id}" ${b.next===n.id?'selected':''}>${n.id}</option>`).join('')}
+            </select>
+            <button onclick="removeBranch('${node.id}',${i})">×</button>
+          </div>`).join('')
+      : '';
+
+    const configRows = (node.type !== 'branch')
+      ? Object.entries(node.config).map(([k, v]) => {
+          // loop "body" field gets a step-id dropdown instead of free text
+          if (node.type === 'loop' && k === 'body') {
+            return `<div class="config-row">
+              <span style="flex:0.6;font-size:0.8rem;color:#94a3b8">body</span>
+              <select onchange="setVal('${node.id}','body',this.value)" style="flex:1.5">
+                <option value="">— first step of body —</option>
+                ${otherNodes.map(n => `<option value="${n.id}" ${v===n.id?'selected':''}>${n.id}</option>`).join('')}
+              </select>
+            </div>`;
+          }
+          return `<div class="config-row">
+            <input value="${k}" onchange="renameKey('${node.id}','${k}',this.value)" placeholder="key">
+            <textarea onchange="setVal('${node.id}','${k}',this.value)" placeholder="value">${v}</textarea>
+            <button onclick="removeKey('${node.id}','${k}')">×</button>
+          </div>`;
+        }).join('')
+      : '';
+
+    const hints = {
+      set_variable: `<p style="font-size:0.7rem;color:#4b5563;margin-top:0.5rem">Use <code style="color:#94a3b8">{{stepId}}</code> to interpolate prior outputs.</p>`,
+      code:         `<p style="font-size:0.7rem;color:#4b5563;margin-top:0.5rem">Function receives <code style="color:#94a3b8">context</code> object. Must <code style="color:#94a3b8">return</code> a string.</p>`,
+      loop:         `<p style="font-size:0.7rem;color:#4b5563;margin-top:0.5rem"><code style="color:#94a3b8">items</code> = newline-separated list. <code style="color:#94a3b8">var</code> = loop variable name. Connect the loop node to the step that runs after.</p>`,
+    };
+
     panel.innerHTML = `
       <label>Step ID</label>
       <input value="${node.id}" onchange="renameNode('${node.id}',this.value)">
@@ -360,10 +467,24 @@
       <select onchange="changeType('${node.id}',this.value)">
         <option value="ai_prompt"    ${node.type==='ai_prompt'?'selected':''}>🤖 AI Prompt</option>
         <option value="http_request" ${node.type==='http_request'?'selected':''}>🌐 HTTP Request</option>
+        <option value="branch"       ${node.type==='branch'?'selected':''}>⟐ Branch</option>
+        <option value="set_variable" ${node.type==='set_variable'?'selected':''}>=  Set Variable</option>
+        <option value="code"         ${node.type==='code'?'selected':''}>{} Code</option>
+        <option value="loop"         ${node.type==='loop'?'selected':''}>↻ Loop</option>
       </select>
-      <label>Config</label>
-      ${rows}
-      <button class="add-btn" onclick="addKey('${node.id}')">+ Add field</button>`;
+      ${node.type === 'branch' ? `
+        <label>Branches <span style="color:#64748b;font-size:0.65rem">(top to bottom)</span></label>
+        ${branchRows}
+        <button class="add-btn" onclick="addBranch('${node.id}')">+ Add branch</button>
+        <p style="font-size:0.7rem;color:#4b5563;margin-top:0.5rem">
+          Syntax: <code style="color:#94a3b8">{{stepId}} contains word</code><br>or <code style="color:#94a3b8">else</code>
+        </p>
+      ` : `
+        <label>Config</label>
+        ${configRows}
+        ${node.type === 'loop' ? '' : `<button class="add-btn" onclick="addKey('${node.id}')">+ Add field</button>`}
+        ${hints[node.type] ?? ''}
+      `}`;
   }
 
   function renderJson() {
@@ -374,12 +495,24 @@
   function buildDefinition() {
     const id   = document.getElementById('wf-id').value   || 'my-workflow';
     const name = document.getElementById('wf-name').value || 'My Workflow';
-    const pointed = new Set(nodes.filter(n => n.next).map(n => n.next));
+    // gather all step IDs that are pointed to (via next or branch targets)
+    const pointed = new Set();
+    nodes.forEach(n => {
+      if (n.next) pointed.add(n.next);
+      (n.branches ?? []).forEach(b => { if (b.next) pointed.add(b.next); });
+      if (n.type === 'loop' && n.config.body) pointed.add(n.config.body);
+    });
     const entry = nodes.find(n => !pointed.has(n.id));
     return {
       id, name,
       entryStepId: entry?.id ?? '',
-      steps: nodes.map(n => ({ id: n.id, type: n.type, config: { ...n.config }, next: n.next }))
+      steps: nodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        config: { ...n.config },
+        next: n.next,
+        ...(n.type === 'branch' ? { branches: (n.branches ?? []).map(b => ({ ...b })) } : {})
+      }))
     };
   }
 
@@ -387,7 +520,11 @@
   function renameNode(oldId, newId) {
     newId = newId.trim();
     if (!newId || newId === oldId || nodes.find(n => n.id === newId)) return;
-    nodes.forEach(n => { if (n.next === oldId) n.next = newId; });
+    nodes.forEach(n => {
+      if (n.next === oldId) n.next = newId;
+      (n.branches ?? []).forEach(b => { if (b.next === oldId) b.next = newId; });
+      if (n.type === 'loop' && n.config.body === oldId) n.config.body = newId;
+    });
     const node = nodes.find(n => n.id === oldId);
     if (node) node.id = newId;
     if (selected === oldId) selected = newId;
@@ -396,8 +533,28 @@
   }
   function changeType(id, type) {
     const n = nodes.find(n => n.id === id);
-    if (n) { n.type = type; n.config = defaultConfig(type); }
+    if (!n) return;
+    n.type = type;
+    n.config = defaultConfig(type);
+    if (type === 'branch') { n.branches = defaultBranches(); n.next = null; }
+    else { delete n.branches; }
     render();
+  }
+  function setBranchCondition(nodeId, index, value) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n?.branches?.[index]) { n.branches[index].condition = value; renderJson(); }
+  }
+  function setBranchNext(nodeId, index, value) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n?.branches?.[index]) { n.branches[index].next = value; render(); }
+  }
+  function addBranch(nodeId) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n) { n.branches = n.branches ?? []; n.branches.push({ condition: 'else', next: '' }); render(); }
+  }
+  function removeBranch(nodeId, index) {
+    const n = nodes.find(n => n.id === nodeId);
+    if (n?.branches) { n.branches.splice(index, 1); render(); }
   }
   function renameKey(nodeId, oldKey, newKey) {
     const n = nodes.find(n => n.id === nodeId);
