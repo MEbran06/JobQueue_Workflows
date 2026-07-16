@@ -6,6 +6,7 @@ import type { StepType } from '../constants.ts';
 import { NODE_H, NODE_W } from '../constants.ts';
 import Node from './Node.tsx';
 import Connections from './Connections.tsx';
+import ZoomControl from './ZoomControl.tsx';
 
 interface DragState {
   id: string;
@@ -251,6 +252,7 @@ function Canvas() {
           <Node key={node.id} node={node} onStartDrag={startDrag} onStartConnect={startConnect} />
         ))}
       </div>
+      <ZoomControl zoom={view.zoom} onReset={() => setView(DEFAULT_VIEW)} />
     </div>
   );
 }
