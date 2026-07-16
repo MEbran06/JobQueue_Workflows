@@ -71,8 +71,8 @@ function Canvas() {
       if (draggingRef.current) {
         const drag = draggingRef.current;
         const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
-        const x = Math.max(10, wx - drag.offsetX);
-        const y = Math.max(10, wy - drag.offsetY);
+        const x = wx - drag.offsetX;
+        const y = wy - drag.offsetY;
         setDragPreview({ id: drag.id, x, y });
       } else if (connectingRef.current) {
         setConnectDragPos(toWorld(e.clientX, e.clientY));
@@ -89,8 +89,8 @@ function Canvas() {
       if (draggingRef.current) {
         const drag = draggingRef.current;
         const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
-        const x = Math.max(10, wx - drag.offsetX);
-        const y = Math.max(10, wy - drag.offsetY);
+        const x = wx - drag.offsetX;
+        const y = wy - drag.offsetY;
         dispatch({ kind: 'MOVE_NODE', id: drag.id, x, y });
         draggingRef.current = null;
         setDragPreview(null);
