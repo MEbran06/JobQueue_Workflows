@@ -13,6 +13,13 @@ interface DragState {
   offsetY: number;
 }
 
+interface PanState {
+  startClientX: number;
+  startClientY: number;
+  startPanX: number;
+  startPanY: number;
+}
+
 interface ViewState {
   zoom: number;
   panX: number;
@@ -32,6 +39,8 @@ function Canvas() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<DragState | null>(null);
   const connectingRef = useRef<string | null>(null);
+  const panningRef = useRef<PanState | null>(null);
+  const justPannedRef = useRef(false);
   const [connectDragPos, setConnectDragPos] = useState<{ x: number; y: number } | null>(null);
   // Live node position while dragging, kept out of the shared store so only
   // this subtree re-renders during the drag — Sidebar/JsonPreview/Header stay
@@ -60,6 +69,12 @@ function Canvas() {
         setDragPreview({ id: drag.id, x, y });
       } else if (connectingRef.current && wrapRef.current) {
         setConnectDragPos(relativePos(e));
+      } else if (panningRef.current) {
+        const pan = panningRef.current;
+        const dx = e.clientX - pan.startClientX;
+        const dy = e.clientY - pan.startClientY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) justPannedRef.current = true;
+        setView((v) => ({ ...v, panX: pan.startPanX + dx, panY: pan.startPanY + dy }));
       }
     }
 
@@ -87,6 +102,8 @@ function Canvas() {
         connectingRef.current = null;
         setConnectDragPos(null);
       }
+
+      panningRef.current = null;
     }
 
     function onKeyDown(e: KeyboardEvent) {
@@ -162,6 +179,27 @@ function Canvas() {
     });
   }
 
+  function onCanvasMouseDown(e: ReactMouseEvent) {
+    if (e.target !== wrapRef.current) return;
+    panningRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startPanX: view.panX,
+      startPanY: view.panY,
+    };
+  }
+
+  function onCanvasClick() {
+    // A completed pan still ends with a native click on the same element the
+    // pan started on - swallow that one click so panning never also cancels
+    // an in-progress connection the way a real click on empty canvas should.
+    if (justPannedRef.current) {
+      justPannedRef.current = false;
+      return;
+    }
+    if (state.connectingFrom) dispatch({ kind: 'CANCEL_CONNECT' });
+  }
+
   // Only the node actually being dragged gets a new object reference here —
   // every other node keeps its original reference, so Node's React.memo can
   // skip re-rendering the rest of the canvas during the drag.
@@ -183,9 +221,8 @@ function Canvas() {
       ref={wrapRef}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
-      onClick={() => {
-        if (state.connectingFrom) dispatch({ kind: 'CANCEL_CONNECT' });
-      }}
+      onMouseDown={onCanvasMouseDown}
+      onClick={onCanvasClick}
     >
       <svg id="svg-layer" style={layerStyle}>
         <Connections nodes={displayNodes} />
