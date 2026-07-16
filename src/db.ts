@@ -39,3 +39,12 @@ export function listDefinitions(): Promise<{ id: string; name: string }[]> {
         });
     });
 }
+
+export function deleteDefinition(id: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+        db.run('DELETE FROM definitions WHERE id = ?', [id], function (err) {
+            if (err) return reject(err);
+            resolve(this.changes > 0);
+        });
+    });
+}

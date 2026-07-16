@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { Job } from 'bullmq';
 import { workflowQueue } from './queue.js';
-import { saveDefinition, getDefinition, listDefinitions } from './db.js';
+import { saveDefinition, getDefinition, listDefinitions, deleteDefinition } from './db.js';
 import type { WorkflowDefinition, StepJobData, StepJobResult } from './types.js';
 
 const app = express();
@@ -28,6 +28,12 @@ app.get('/definitions/:id', async (req, res) => {
     const def = await getDefinition(req.params.id);
     if (!def) { res.status(404).json({ error: 'not found' }); return; }
     res.json(def);
+});
+
+app.delete('/definitions/:id', async (req, res) => {
+    const deleted = await deleteDefinition(req.params.id);
+    if (!deleted) { res.status(404).json({ error: 'not found' }); return; }
+    res.status(204).end();
 });
 
 app.post('/runs', async (req, res) => {
