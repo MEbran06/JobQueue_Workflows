@@ -180,6 +180,10 @@ function Canvas() {
   }
 
   function onCanvasMouseDown(e: ReactMouseEvent) {
+    // A pan that ends with mouseup off-canvas never reaches onCanvasClick to
+    // reset this flag, so also clear it here - any future click-to-cancel-
+    // connect requires its own preceding mousedown on the canvas first.
+    justPannedRef.current = false;
     if (e.target !== wrapRef.current) return;
     panningRef.current = {
       startClientX: e.clientX,
