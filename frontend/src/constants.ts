@@ -13,6 +13,7 @@ export interface TypeMeta {
 }
 
 export const TYPE_META: Record<StepType, TypeMeta> = {
+  start:        { label: 'Start',        icon: '🚩', color: '#2dd4bf', bg: '#0f766e20' },
   ai_prompt:    { label: 'AI Prompt',    icon: '🤖', color: '#3b82f6', bg: '#1e3a5f20' },
   http_request: { label: 'HTTP Request', icon: '🌐', color: '#10b981', bg: '#06403020' },
   branch:       { label: 'Branch',       icon: '⟐',  color: '#f59e0b', bg: '#78350f20' },
@@ -22,6 +23,7 @@ export const TYPE_META: Record<StepType, TypeMeta> = {
 };
 
 const SLUG: Record<StepType, string> = {
+  start: 'start',
   ai_prompt: 'ai',
   http_request: 'http',
   branch: 'branch',

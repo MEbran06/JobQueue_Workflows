@@ -309,19 +309,21 @@ export function reducer(state: WorkflowState, action: Action): WorkflowState {
   }
 }
 
+// A `start` node is the workflow's only valid entry point — explicit and
+// stable, unlike inferring it from graph shape (which silently shifts as
+// nodes are added/removed/rewired). validateWorkflow() enforces exactly one
+// exists before Save/Run is allowed to proceed.
+export function validateWorkflow(state: WorkflowState): string | null {
+  const startNodes = state.nodes.filter((n) => n.type === 'start');
+  if (startNodes.length === 0) return 'Add a Start step to mark where the workflow begins.';
+  if (startNodes.length > 1) return `Only one Start step is allowed (found ${startNodes.length}).`;
+  return null;
+}
+
 export function buildDefinition(state: WorkflowState): WorkflowDefinition {
   const id = state.workflowId || 'my-workflow';
   const name = state.workflowName || 'My Workflow';
-
-  // loopBackTo is deliberately excluded — its target is typically the
-  // workflow's actual entry step, and marking it "pointed" would break
-  // entry-step detection.
-  const pointed = new Set<string>();
-  state.nodes.forEach((n) => {
-    if (n.next) pointed.add(n.next);
-    n.branches.forEach((b) => { if (b.next) pointed.add(b.next); });
-  });
-  const entry = state.nodes.find((n) => !pointed.has(n.id));
+  const entry = state.nodes.find((n) => n.type === 'start');
 
   return {
     id,

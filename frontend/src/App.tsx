@@ -7,7 +7,7 @@ import BottomPanel from './components/BottomPanel.tsx';
 import Resizer from './components/Resizer.tsx';
 import type { WorkflowDefinition } from '../../src/types.ts';
 import { useWorkflow } from './store.tsx';
-import { buildDefinition } from './workflow.ts';
+import { buildDefinition, validateWorkflow } from './workflow.ts';
 import { saveDefinition, startRun } from './api.ts';
 import type { InputRow } from './api.ts';
 import { clamp } from './utils.ts';
@@ -22,22 +22,24 @@ function App() {
   const [bottomHeight, setBottomHeight] = useState(220);
 
   async function handleSave() {
-    const def = buildDefinition(state);
-    if (!def.entryStepId) {
-      alert('Add and connect at least one step first');
+    const error = validateWorkflow(state);
+    if (error) {
+      alert(error);
       return;
     }
+    const def = buildDefinition(state);
     await saveDefinition(def);
     setSaveStatus('Saved ✓');
     setTimeout(() => setSaveStatus(''), 2000);
   }
 
   async function handleRun() {
-    const def = buildDefinition(state);
-    if (!def.entryStepId) {
-      alert('Add and connect at least one step first');
+    const error = validateWorkflow(state);
+    if (error) {
+      alert(error);
       return;
     }
+    const def = buildDefinition(state);
     await saveDefinition(def);
     const input = Object.fromEntries(runInputs.filter((r) => r.key).map((r) => [r.key, r.value]));
     const newRunId = await startRun(def.id, input);

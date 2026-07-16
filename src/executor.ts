@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Step } from './types.js';
+import { validateCode } from './sandbox/validateCode.js';
+import { runSandboxed } from './sandbox/runSandboxed.js';
 
 export function evaluateCondition(condition: string, context: Record<string, string>): boolean {
     if (condition.trim() === 'else') return true;
@@ -43,6 +45,9 @@ export async function executeStep(step: Step, context: Record<string, string>): 
     const config = interpolateConfig(step.config, context);
 
     switch (step.type) {
+        case 'start':
+            return '';
+
         case 'ai_prompt': {
             const message = await anthropic.messages.create({
                 model: 'claude-opus-4-8',
@@ -64,9 +69,13 @@ export async function executeStep(step: Step, context: Record<string, string>): 
             return config['value'] ?? '';
 
         case 'code': {
-            // new Function is intentional: user-defined code step, local use only
-            const fn = new Function('context', config['code'] ?? 'return ""') as (ctx: Record<string, string>) => unknown;
-            return String(fn(context) ?? '');
+            // Raw step.config, not the interpolated `config` above: {{}} text
+            // substitution into source code ahead of parsing would let an
+            // upstream step's output (AI/HTTP data) inject arbitrary code.
+            // Data reaches the sandbox through `context` at runtime instead.
+            const code = step.config['code'] ?? 'return "";';
+            validateCode(code);
+            return runSandboxed(code, context);
         }
 
         case 'branch':

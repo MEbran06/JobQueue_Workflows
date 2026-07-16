@@ -1,5 +1,9 @@
 node_modules/
+graphify-out/
+docs/
+.claude
 .env
+CLAUDE.md
 *.db
 data/
 dist/

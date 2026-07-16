@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import type { FocusEvent, ReactNode } from 'react';
 import { useWorkflow } from '../store.tsx';
+import type { CanvasNode } from '../workflow.ts';
 import type { StepType } from '../constants.ts';
 import ConditionBuilder from './ConditionBuilder.tsx';
+import CodeEditorModal from './CodeEditorModal.tsx';
 
 const TYPE_OPTIONS: { value: StepType; label: string }[] = [
+  { value: 'start', label: '🚩 Start' },
   { value: 'ai_prompt', label: '🤖 AI Prompt' },
   { value: 'http_request', label: '🌐 HTTP Request' },
   { value: 'branch', label: '⟐ Branch' },
@@ -17,6 +20,12 @@ const hintStyle = { fontSize: '0.7rem', color: '#4b5563', marginTop: '0.5rem' };
 const codeStyle = { color: '#94a3b8' };
 
 const HINTS: Partial<Record<StepType, ReactNode>> = {
+  start: (
+    <p style={hintStyle}>
+      Marks the workflow's entry point explicitly, so it doesn't depend on which node happens to have no connections
+      pointing to it. Use one per workflow — connect its <code style={codeStyle}>next</code> to the real first step.
+    </p>
+  ),
   set_variable: (
     <p style={hintStyle}>
       Use <code style={codeStyle}>{'{{stepId}}'}</code> to interpolate prior outputs.
@@ -39,12 +48,13 @@ interface ConfigRowProps {
   nodeId: string;
   configKey: string;
   value: string;
-  expandable?: boolean;
+  useCodeEditor?: boolean;
+  otherNodes?: CanvasNode[];
 }
 
-function ConfigRow({ nodeId, configKey, value, expandable }: ConfigRowProps) {
+function ConfigRow({ nodeId, configKey, value, useCodeEditor, otherNodes }: ConfigRowProps) {
   const { dispatch } = useWorkflow();
-  const [expanded, setExpanded] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   return (
     <div className="config-row">
       <input
@@ -58,22 +68,24 @@ function ConfigRow({ nodeId, configKey, value, expandable }: ConfigRowProps) {
         }}
       />
       <textarea
-        className={expanded ? 'expanded' : undefined}
         placeholder="value"
         value={value}
         onChange={(e) => dispatch({ kind: 'SET_VAL', nodeId, key: configKey, value: e.target.value })}
       />
-      {expandable && (
-        <button
-          type="button"
-          className="expand-btn"
-          title={expanded ? 'Collapse' : 'Expand'}
-          onClick={() => setExpanded((e) => !e)}
-        >
-          {expanded ? '⤡' : '⤢'}
+      {useCodeEditor && (
+        <button type="button" className="editor-btn" title="Open code editor" onClick={() => setEditorOpen(true)}>
+          ✎
         </button>
       )}
       <button onClick={() => dispatch({ kind: 'REMOVE_KEY', nodeId, key: configKey })}>×</button>
+      {useCodeEditor && editorOpen && (
+        <CodeEditorModal
+          value={value}
+          otherNodes={otherNodes ?? []}
+          onChange={(v) => dispatch({ kind: 'SET_VAL', nodeId, key: configKey, value: v })}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -195,7 +207,8 @@ function Sidebar({ width }: SidebarProps) {
                   nodeId={node.id}
                   configKey={k}
                   value={v}
-                  expandable={node.type === 'code' && k === 'code'}
+                  useCodeEditor={node.type === 'code' && k === 'code'}
+                  otherNodes={otherNodes}
                 />
               )
             )}

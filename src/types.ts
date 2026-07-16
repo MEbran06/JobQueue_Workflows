@@ -5,7 +5,7 @@ export interface Branch {
 
 export interface Step {
     id: string;
-    type: 'ai_prompt' | 'http_request' | 'branch' | 'set_variable' | 'code' | 'loop';
+    type: 'start' | 'ai_prompt' | 'http_request' | 'branch' | 'set_variable' | 'code' | 'loop';
     config: Record<string, string>;
     next: string | null;
     branches?: Branch[];
