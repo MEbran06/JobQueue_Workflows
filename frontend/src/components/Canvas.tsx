@@ -54,21 +54,27 @@ function Canvas() {
     setView(DEFAULT_VIEW);
   }, [state.workflowId]);
 
-  useEffect(() => {
-    function relativePos(e: MouseEvent) {
+  const toWorld = useCallback(
+    (clientX: number, clientY: number) => {
       const rect = wrapRef.current!.getBoundingClientRect();
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    }
+      return {
+        x: (clientX - rect.left - view.panX) / view.zoom,
+        y: (clientY - rect.top - view.panY) / view.zoom,
+      };
+    },
+    [view.panX, view.panY, view.zoom]
+  );
 
+  useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      if (draggingRef.current && wrapRef.current) {
+      if (draggingRef.current) {
         const drag = draggingRef.current;
-        const rect = wrapRef.current.getBoundingClientRect();
-        const x = Math.max(10, e.clientX - rect.left - drag.offsetX);
-        const y = Math.max(10, e.clientY - rect.top - drag.offsetY);
+        const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
+        const x = Math.max(10, wx - drag.offsetX);
+        const y = Math.max(10, wy - drag.offsetY);
         setDragPreview({ id: drag.id, x, y });
-      } else if (connectingRef.current && wrapRef.current) {
-        setConnectDragPos(relativePos(e));
+      } else if (connectingRef.current) {
+        setConnectDragPos(toWorld(e.clientX, e.clientY));
       } else if (panningRef.current) {
         const pan = panningRef.current;
         const dx = e.clientX - pan.startClientX;
@@ -81,9 +87,9 @@ function Canvas() {
     function onMouseUp(e: MouseEvent) {
       if (draggingRef.current) {
         const drag = draggingRef.current;
-        const rect = wrapRef.current!.getBoundingClientRect();
-        const x = Math.max(10, e.clientX - rect.left - drag.offsetX);
-        const y = Math.max(10, e.clientY - rect.top - drag.offsetY);
+        const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
+        const x = Math.max(10, wx - drag.offsetX);
+        const y = Math.max(10, wy - drag.offsetY);
         dispatch({ kind: 'MOVE_NODE', id: drag.id, x, y });
         draggingRef.current = null;
         setDragPreview(null);
@@ -122,7 +128,7 @@ function Canvas() {
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [dispatch]);
+  }, [dispatch, toWorld]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -145,37 +151,35 @@ function Canvas() {
     return () => wrap.removeEventListener('wheel', onWheel);
   }, []);
 
-  const startDrag = useCallback((node: CanvasNode, e: ReactMouseEvent) => {
-    if (!wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    draggingRef.current = {
-      id: node.id,
-      offsetX: e.clientX - rect.left - node.x,
-      offsetY: e.clientY - rect.top - node.y,
-    };
-  }, []);
+  const startDrag = useCallback(
+    (node: CanvasNode, e: ReactMouseEvent) => {
+      if (!wrapRef.current) return;
+      const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
+      draggingRef.current = { id: node.id, offsetX: wx - node.x, offsetY: wy - node.y };
+    },
+    [toWorld]
+  );
 
   const startConnect = useCallback(
     (nodeId: string, e: ReactMouseEvent) => {
       if (!wrapRef.current) return;
       connectingRef.current = nodeId;
       dispatch({ kind: 'START_CONNECT', id: nodeId });
-      const rect = wrapRef.current.getBoundingClientRect();
-      setConnectDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      setConnectDragPos(toWorld(e.clientX, e.clientY));
     },
-    [dispatch]
+    [dispatch, toWorld]
   );
 
   function onDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     const type = e.dataTransfer.getData('type') as StepType | '';
     if (!type || !wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
+    const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
     dispatch({
       kind: 'ADD_NODE',
       nodeType: type,
-      x: e.clientX - rect.left - NODE_W / 2,
-      y: e.clientY - rect.top - NODE_H / 2,
+      x: wx - NODE_W / 2,
+      y: wy - NODE_H / 2,
     });
   }
 
