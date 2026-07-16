@@ -7,10 +7,11 @@ interface HeaderProps {
   onRun: () => void;
   onClear: () => void;
   onLoad: (def: WorkflowDefinition) => void;
+  onDeleted: (id: string) => void;
   saveStatus: string;
 }
 
-function Header({ onSave, onRun, onClear, onLoad, saveStatus }: HeaderProps) {
+function Header({ onSave, onRun, onClear, onLoad, onDeleted, saveStatus }: HeaderProps) {
   const { state, dispatch } = useWorkflow();
 
   return (
@@ -32,7 +33,7 @@ function Header({ onSave, onRun, onClear, onLoad, saveStatus }: HeaderProps) {
       <button className="run" onClick={onRun}>
         ▶ Run
       </button>
-      <OpenWorkflow onLoad={onLoad} />
+      <OpenWorkflow onLoad={onLoad} onDeleted={onDeleted} />
       <button className="clear" onClick={onClear}>
         Clear
       </button>

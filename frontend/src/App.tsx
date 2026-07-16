@@ -46,13 +46,21 @@ function App() {
     setRunId(newRunId);
   }
 
+  function resetCanvas() {
+    dispatch({ kind: 'RESET_WORKFLOW' });
+    setRunId(null);
+    setRunInputs([{ key: 'topic', value: '' }]);
+  }
+
   function handleClear() {
     if (state.nodes.length > 0 && !window.confirm('Clear the canvas? This removes all steps and cannot be undone.')) {
       return;
     }
-    dispatch({ kind: 'RESET_WORKFLOW' });
-    setRunId(null);
-    setRunInputs([{ key: 'topic', value: '' }]);
+    resetCanvas();
+  }
+
+  function handleWorkflowDeleted(id: string) {
+    if (id === state.workflowId) resetCanvas();
   }
 
   function handleLoad(def: WorkflowDefinition) {
@@ -69,7 +77,14 @@ function App() {
 
   return (
     <>
-      <Header onSave={handleSave} onRun={handleRun} onClear={handleClear} onLoad={handleLoad} saveStatus={saveStatus} />
+      <Header
+        onSave={handleSave}
+        onRun={handleRun}
+        onClear={handleClear}
+        onLoad={handleLoad}
+        onDeleted={handleWorkflowDeleted}
+        saveStatus={saveStatus}
+      />
       <main>
         <Palette width={paletteWidth} />
         <Resizer axis="x" onResize={(d) => setPaletteWidth((w) => clamp(w + d, 90, 400))} />

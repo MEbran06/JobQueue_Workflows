@@ -59,3 +59,7 @@ export async function fetchRun(runId: string): Promise<RunStatus> {
 export async function stopRun(runId: string): Promise<void> {
   await fetch(`/runs/${runId}/stop`, { method: 'POST' });
 }
+
+export async function deleteDefinition(id: string): Promise<void> {
+  await fetch(`/definitions/${id}`, { method: 'DELETE' });
+}

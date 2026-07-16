@@ -34,13 +34,33 @@ header button.clear:hover { background: #2d3748; color: #e2e8f0; }
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 0.35rem;
 }
 .open-dropdown .hint { padding: 0.75rem 0; font-size: 0.75rem; }
+.open-dropdown-row { display: flex; align-items: center; gap: 0.25rem; }
 .open-dropdown-item {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
-  width: 100%; background: none; border: none; border-radius: 0.35rem;
+  flex: 1; min-width: 0; background: none; border: none; border-radius: 0.35rem;
   color: #e2e8f0; padding: 0.4rem 0.5rem; font-size: 0.8rem; text-align: left; cursor: pointer;
 }
 .open-dropdown-item:hover { background: #1e2433; }
 .open-dropdown-id { font-size: 0.68rem; color: #64748b; }
+.open-dropdown-delete {
+  flex-shrink: 0; background: none; border: none; color: #4b5563; cursor: pointer;
+  font-size: 0.85rem; padding: 0.3rem; line-height: 1; border-radius: 0.35rem;
+}
+.open-dropdown-delete:hover { color: #f87171; background: #1e2433; }
+.open-dropdown-confirm {
+  padding: 0.4rem 0.5rem; font-size: 0.75rem; background: #1e2433; border-radius: 0.35rem;
+}
+.open-dropdown-confirm-text { flex: 1; color: #e2e8f0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-dropdown-confirm-yes {
+  flex-shrink: 0; background: #450a0a; border: 1px solid #7f1d1d; color: #f87171;
+  border-radius: 0.35rem; padding: 0.2rem 0.5rem; font-size: 0.72rem; cursor: pointer; font-weight: 500;
+}
+.open-dropdown-confirm-yes:hover { background: #7f1d1d; color: #fff; }
+.open-dropdown-confirm-cancel {
+  flex-shrink: 0; background: none; border: 1px solid #2d3748; color: #94a3b8;
+  border-radius: 0.35rem; padding: 0.2rem 0.5rem; font-size: 0.72rem; cursor: pointer;
+}
+.open-dropdown-confirm-cancel:hover { background: #2d3748; color: #e2e8f0; }
 
 /* ── Main layout ── */
 main { display: flex; flex: 1; overflow: hidden; }
