@@ -1,14 +1,19 @@
 import 'dotenv/config';
 import { Worker } from 'bullmq';
 import { workflowQueue } from './queue.js';
-import { executeStep, evaluateBranch, interpolate } from './executor.js';
+import { executeStep, evaluateBranch, evaluateCondition } from './executor.js';
 import { getDefinition } from './db.js';
-import type { StepJobData, LoopState } from './types.js';
+import type { StepJobData, StepJobResult } from './types.js';
 
 const connection = { url: process.env.REDIS_URL ?? 'redis://localhost:6379' };
 
-const worker = new Worker<any, any>('workflow-steps', async (job) => {
-    const { definitionId, runId, stepId, context, loopState } = job.data as StepJobData;
+const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
+    const { definitionId, runId, stepId, context } = job.data as StepJobData;
+
+    const redis = await workflowQueue.client;
+    if (await redis.get(`stopped:${runId}`)) {
+        return { stepId, output: 'Run stopped by user', nextJobId: null, stopped: true };
+    }
 
     const definition = await getDefinition(definitionId);
     if (!definition) throw new Error(`Unknown workflow: ${definitionId}`);
@@ -25,28 +30,10 @@ const worker = new Worker<any, any>('workflow-steps', async (job) => {
         nextStepId = evaluateBranch(step, context);
 
     } else if (step.type === 'loop') {
-        const rawItems = interpolate(step.config['items'] ?? '', context);
-        const items = rawItems.split('\n').map(s => s.trim()).filter(Boolean);
-        output = `loop(${items.length} items)`;
-
-        if (items.length === 0) {
-            nextStepId = step.next;
-        } else {
-            const loopVar = step.config['var'] ?? 'item';
-            const bodyStepId = step.config['body'];
-            if (!bodyStepId) throw new Error(`loop step "${stepId}" missing "body" config`);
-
-            const newLoopState: LoopState = {
-                items, index: 0, loopVar,
-                bodyStepId, afterLoopStepId: step.next,
-            };
-            const bodyJob = await workflowQueue.add('step', {
-                definitionId, runId, stepId: bodyStepId,
-                context: { ...context, [loopVar]: items[0] },
-                loopState: newLoopState,
-            });
-            return { stepId, output, nextJobId: bodyJob.id };
-        }
+        const shouldLoop = evaluateCondition(step.config['condition'] ?? '', context);
+        const loopBackTo = step.config['loopBackTo'] || null;
+        output = shouldLoop ? `loop -> back to "${loopBackTo}"` : 'loop -> continue';
+        nextStepId = shouldLoop ? loopBackTo : step.next;
 
     } else {
         output = await executeStep(step, context);
@@ -56,34 +43,13 @@ const worker = new Worker<any, any>('workflow-steps', async (job) => {
     const newContext = { ...context, [stepId]: output };
 
     if (nextStepId) {
-        // Carry loopState through the body chain so the end of the chain can continue the loop
+        if (await redis.get(`stopped:${runId}`)) {
+            return { stepId, output: 'Run stopped by user', nextJobId: null, stopped: true };
+        }
         const nextJob = await workflowQueue.add('step', {
-            definitionId, runId, stepId: nextStepId,
-            context: newContext, loopState,
+            definitionId, runId, stepId: nextStepId, context: newContext,
         });
-        return { stepId, output, nextJobId: nextJob.id };
-    }
-
-    // nextStepId is null — check if we're inside a loop body
-    if (loopState) {
-        const { items, index, loopVar, bodyStepId, afterLoopStepId } = loopState;
-        const nextIndex = index + 1;
-
-        if (nextIndex < items.length) {
-            const iterJob = await workflowQueue.add('step', {
-                definitionId, runId, stepId: bodyStepId,
-                context: { ...newContext, [loopVar]: items[nextIndex] },
-                loopState: { ...loopState, index: nextIndex },
-            });
-            return { stepId, output, nextJobId: iterJob.id };
-        }
-
-        if (afterLoopStepId) {
-            const afterJob = await workflowQueue.add('step', {
-                definitionId, runId, stepId: afterLoopStepId, context: newContext,
-            });
-            return { stepId, output, nextJobId: afterJob.id };
-        }
+        return { stepId, output, nextJobId: nextJob.id ?? null };
     }
 
     return { stepId, output, nextJobId: null };

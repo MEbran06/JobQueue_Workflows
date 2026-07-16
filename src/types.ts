@@ -3,14 +3,6 @@ export interface Branch {
     next: string;
 }
 
-export interface LoopState {
-    items: string[];
-    index: number;
-    loopVar: string;
-    bodyStepId: string;
-    afterLoopStepId: string | null;
-}
-
 export interface Step {
     id: string;
     type: 'ai_prompt' | 'http_request' | 'branch' | 'set_variable' | 'code' | 'loop';
@@ -31,5 +23,11 @@ export interface StepJobData {
     runId: string;
     stepId: string;
     context: Record<string, string>;
-    loopState?: LoopState;
+}
+
+export interface StepJobResult {
+    stepId: string;
+    output: string;
+    nextJobId: string | null;
+    stopped?: boolean;
 }

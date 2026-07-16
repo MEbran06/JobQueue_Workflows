@@ -1,18 +1,21 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Step } from './types.js';
 
-function evaluateCondition(condition: string, context: Record<string, string>): boolean {
+export function evaluateCondition(condition: string, context: Record<string, string>): boolean {
     if (condition.trim() === 'else') return true;
-    const match = condition.match(/\{\{(\w+)\}\}\s+(contains|equals|startsWith)\s+(.+)/);
+    const match = condition.match(/\{\{(\w+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)/);
     if (!match) return false;
     const [, variable, operator, value] = match;
     const contextValue = (context[variable] ?? '').toLowerCase();
     const compareValue = value.trim().toLowerCase();
     switch (operator) {
-        case 'contains':    return contextValue.includes(compareValue);
-        case 'equals':      return contextValue === compareValue;
-        case 'startsWith':  return contextValue.startsWith(compareValue);
-        default:            return false;
+        case 'contains':     return contextValue.includes(compareValue);
+        case 'equals':       return contextValue === compareValue;
+        case 'notEquals':    return contextValue !== compareValue;
+        case 'startsWith':   return contextValue.startsWith(compareValue);
+        case 'lessThan':     return Number(contextValue) < Number(compareValue);
+        case 'greaterThan':  return Number(contextValue) > Number(compareValue);
+        default:             return false;
     }
 }
 
