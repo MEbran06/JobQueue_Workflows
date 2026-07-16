@@ -9,6 +9,9 @@ export interface Step {
     config: Record<string, string>;
     next: string | null;
     branches?: Branch[];
+    // Canvas position — UI metadata only, never read during execution.
+    x?: number;
+    y?: number;
 }
 
 export interface WorkflowDefinition {

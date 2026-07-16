@@ -5,6 +5,7 @@ import Canvas from './components/Canvas.tsx';
 import Sidebar from './components/Sidebar.tsx';
 import BottomPanel from './components/BottomPanel.tsx';
 import Resizer from './components/Resizer.tsx';
+import type { WorkflowDefinition } from '../../src/types.ts';
 import { useWorkflow } from './store.tsx';
 import { buildDefinition } from './workflow.ts';
 import { saveDefinition, startRun } from './api.ts';
@@ -52,9 +53,21 @@ function App() {
     setRunInputs([{ key: 'topic', value: '' }]);
   }
 
+  function handleLoad(def: WorkflowDefinition) {
+    if (
+      state.nodes.length > 0 &&
+      !window.confirm('Load this workflow? Unsaved changes to the current canvas will be lost.')
+    ) {
+      return;
+    }
+    dispatch({ kind: 'LOAD_WORKFLOW', definition: def });
+    setRunId(null);
+    setRunInputs([{ key: 'topic', value: '' }]);
+  }
+
   return (
     <>
-      <Header onSave={handleSave} onRun={handleRun} onClear={handleClear} saveStatus={saveStatus} />
+      <Header onSave={handleSave} onRun={handleRun} onClear={handleClear} onLoad={handleLoad} saveStatus={saveStatus} />
       <main>
         <Palette width={paletteWidth} />
         <Resizer axis="x" onResize={(d) => setPaletteWidth((w) => clamp(w + d, 90, 400))} />

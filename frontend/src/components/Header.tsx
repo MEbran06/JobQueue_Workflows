@@ -1,13 +1,16 @@
+import type { WorkflowDefinition } from '../../../src/types.ts';
 import { useWorkflow } from '../store.tsx';
+import OpenWorkflow from './OpenWorkflow.tsx';
 
 interface HeaderProps {
   onSave: () => void;
   onRun: () => void;
   onClear: () => void;
+  onLoad: (def: WorkflowDefinition) => void;
   saveStatus: string;
 }
 
-function Header({ onSave, onRun, onClear, saveStatus }: HeaderProps) {
+function Header({ onSave, onRun, onClear, onLoad, saveStatus }: HeaderProps) {
   const { state, dispatch } = useWorkflow();
 
   return (
@@ -29,6 +32,7 @@ function Header({ onSave, onRun, onClear, saveStatus }: HeaderProps) {
       <button className="run" onClick={onRun}>
         ▶ Run
       </button>
+      <OpenWorkflow onLoad={onLoad} />
       <button className="clear" onClick={onClear}>
         Clear
       </button>

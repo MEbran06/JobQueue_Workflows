@@ -25,6 +25,23 @@ header button.clear { background: #1e2433; border: 1px solid #2d3748; color: #94
 header button.clear:hover { background: #2d3748; color: #e2e8f0; }
 #save-status { font-size: 0.8rem; color: #4ade80; }
 
+/* ── Open workflow ── */
+.open-workflow { position: relative; }
+.open-dropdown {
+  position: absolute; top: calc(100% + 0.35rem); left: 0; z-index: 10;
+  width: 220px; max-height: 280px; overflow-y: auto;
+  background: #161b22; border: 1px solid #2d3748; border-radius: 0.4rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 0.35rem;
+}
+.open-dropdown .hint { padding: 0.75rem 0; font-size: 0.75rem; }
+.open-dropdown-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
+  width: 100%; background: none; border: none; border-radius: 0.35rem;
+  color: #e2e8f0; padding: 0.4rem 0.5rem; font-size: 0.8rem; text-align: left; cursor: pointer;
+}
+.open-dropdown-item:hover { background: #1e2433; }
+.open-dropdown-id { font-size: 0.68rem; color: #64748b; }
+
 /* ── Main layout ── */
 main { display: flex; flex: 1; overflow: hidden; }
 

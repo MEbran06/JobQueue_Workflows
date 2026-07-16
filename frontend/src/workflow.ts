@@ -1,4 +1,4 @@
-import type { Branch, WorkflowDefinition } from '../../src/types.ts';
+import type { Branch, Step, WorkflowDefinition } from '../../src/types.ts';
 import type { StepType } from './constants.ts';
 import { defaultBranches, defaultConfig, slugFor } from './constants.ts';
 
@@ -32,6 +32,7 @@ export const initialState: WorkflowState = {
 
 export type Action =
   | { kind: 'RESET_WORKFLOW' }
+  | { kind: 'LOAD_WORKFLOW'; definition: WorkflowDefinition }
   | { kind: 'SET_WORKFLOW_ID'; value: string }
   | { kind: 'SET_WORKFLOW_NAME'; value: string }
   | { kind: 'ADD_NODE'; nodeType: StepType; x: number; y: number }
@@ -99,10 +100,54 @@ function wouldCreateCycle(nodes: CanvasNode[], fromId: string, toId: string): bo
   return false;
 }
 
+function positionFor(step: Step, index: number): { x: number; y: number } {
+  if (typeof step.x === 'number' && typeof step.y === 'number') return { x: step.x, y: step.y };
+  // Older saved workflows predate position persistence — fall back to a
+  // simple grid rather than stacking everything at the origin.
+  const col = index % 4;
+  const row = Math.floor(index / 4);
+  return { x: 40 + col * 220, y: 40 + row * 140 };
+}
+
+function inferNodeCounter(nodes: CanvasNode[]): number {
+  let max = 0;
+  nodes.forEach((n) => {
+    const match = n.id.match(/-(\d+)$/);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return max;
+}
+
+export function fromDefinition(def: WorkflowDefinition): WorkflowState {
+  const nodes: CanvasNode[] = def.steps.map((step, i) => {
+    const pos = positionFor(step, i);
+    return {
+      id: step.id,
+      type: step.type,
+      config: { ...step.config },
+      branches: (step.branches ?? []).map((b) => ({ ...b })),
+      x: pos.x,
+      y: pos.y,
+      next: step.next,
+    };
+  });
+  return {
+    workflowId: def.id,
+    workflowName: def.name,
+    nodes,
+    selected: null,
+    connectingFrom: null,
+    nodeCounter: inferNodeCounter(nodes),
+  };
+}
+
 export function reducer(state: WorkflowState, action: Action): WorkflowState {
   switch (action.kind) {
     case 'RESET_WORKFLOW':
       return initialState;
+
+    case 'LOAD_WORKFLOW':
+      return fromDefinition(action.definition);
 
     case 'SET_WORKFLOW_ID':
       return { ...state, workflowId: action.value };
@@ -287,6 +332,8 @@ export function buildDefinition(state: WorkflowState): WorkflowDefinition {
       type: n.type,
       config: { ...n.config },
       next: n.next,
+      x: n.x,
+      y: n.y,
       ...(n.type === 'branch' ? { branches: n.branches.map((b) => ({ ...b })) } : {}),
     })),
   };
