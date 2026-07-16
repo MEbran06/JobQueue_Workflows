@@ -13,6 +13,20 @@ interface DragState {
   offsetY: number;
 }
 
+interface ViewState {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
+
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 2;
+const DEFAULT_VIEW: ViewState = { zoom: 1, panX: 0, panY: 0 };
+
+function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+}
+
 function Canvas() {
   const { state, dispatch } = useWorkflow();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -23,6 +37,13 @@ function Canvas() {
   // this subtree re-renders during the drag — Sidebar/JsonPreview/Header stay
   // untouched until the position is committed on drop.
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
+
+  // View is transient UI state, not persisted with the workflow - reset it
+  // whenever a different workflow is loaded so zoom/pan never leaks across workflows.
+  useEffect(() => {
+    setView(DEFAULT_VIEW);
+  }, [state.workflowId]);
 
   useEffect(() => {
     function relativePos(e: MouseEvent) {
@@ -86,6 +107,27 @@ function Canvas() {
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const rect = wrap!.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      setView((v) => {
+        const newZoom = clampZoom(v.zoom * Math.exp(-e.deltaY * 0.001));
+        const newPanX = mouseX - (mouseX - v.panX) * (newZoom / v.zoom);
+        const newPanY = mouseY - (mouseY - v.panY) * (newZoom / v.zoom);
+        return { zoom: newZoom, panX: newPanX, panY: newPanY };
+      });
+    }
+
+    wrap.addEventListener('wheel', onWheel, { passive: false });
+    return () => wrap.removeEventListener('wheel', onWheel);
+  }, []);
+
   const startDrag = useCallback((node: CanvasNode, e: ReactMouseEvent) => {
     if (!wrapRef.current) return;
     const rect = wrapRef.current.getBoundingClientRect();
@@ -129,6 +171,11 @@ function Canvas() {
 
   const connectSource = state.connectingFrom ? state.nodes.find((n) => n.id === state.connectingFrom) : undefined;
 
+  const layerStyle = {
+    transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+    transformOrigin: '0 0',
+  };
+
   return (
     <div
       id="canvas-wrap"
@@ -140,7 +187,7 @@ function Canvas() {
         if (state.connectingFrom) dispatch({ kind: 'CANCEL_CONNECT' });
       }}
     >
-      <svg id="svg-layer">
+      <svg id="svg-layer" style={layerStyle}>
         <Connections nodes={displayNodes} />
         {connectSource && connectDragPos && (
           <line
@@ -154,7 +201,7 @@ function Canvas() {
           />
         )}
       </svg>
-      <div id="nodes-layer">
+      <div id="nodes-layer" style={layerStyle}>
         {displayNodes.map((node) => (
           <Node key={node.id} node={node} onStartDrag={startDrag} onStartConnect={startConnect} />
         ))}
