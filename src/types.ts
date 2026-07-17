@@ -28,6 +28,12 @@ export interface StepJobData {
     context: Record<string, string>;
 }
 
+export interface DeadTokenJobData {
+    definitionId: string;
+    runId: string;
+    stepId: string;
+}
+
 export interface StepJobResult {
     stepId: string;
     output: string;

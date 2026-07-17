@@ -4,11 +4,45 @@ import { workflowQueue } from './queue.js';
 import { executeStep, evaluateBranch, evaluateCondition, findDownstreamMergeSteps } from './executor.js';
 import type { ExtraRedisCommands } from './queue.js';
 import { getDefinition } from './db.js';
-import type { StepJobData, StepJobResult } from './types.js';
+import type { DeadTokenJobData, StepJobData, StepJobResult } from './types.js';
 
 const connection = { url: process.env.REDIS_URL ?? 'redis://localhost:6379' };
 
-const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
+// One hop of dead-token propagation: mark a merge doomed (if not already) and
+// keep propagating past it, or forward through an ordinary/branch step
+// unconditionally. See
+// docs/superpowers/specs/2026-07-17-dynamic-merge-resolution-design.md.
+async function processDeadToken(data: DeadTokenJobData): Promise<void> {
+    const { definitionId, runId, stepId } = data;
+    const definition = await getDefinition(definitionId);
+    if (!definition) return;
+
+    const step = definition.steps.find(s => s.id === stepId);
+    if (!step) return;
+
+    const redis = await workflowQueue.client;
+
+    if (step.type === 'merge') {
+        const alreadyDoomed = await redis.get(`run:${runId}:merge:${stepId}:doomed`);
+        if (alreadyDoomed) return;
+        await redis.set(`run:${runId}:merge:${stepId}:doomed`, 'excluded-by-branch');
+    }
+
+    if (step.next) {
+        await workflowQueue.add('deadToken', { definitionId, runId, stepId: step.next });
+    }
+    for (const branch of step.branches ?? []) {
+        if (branch.next) {
+            await workflowQueue.add('deadToken', { definitionId, runId, stepId: branch.next });
+        }
+    }
+}
+
+const worker = new Worker<any, StepJobResult | void>('workflow-steps', async (job) => {
+    if (job.name === 'deadToken') {
+        return processDeadToken(job.data as DeadTokenJobData);
+    }
+
     const { definitionId, runId, stepId, context } = job.data as StepJobData;
 
     const redis = await workflowQueue.client;
@@ -63,6 +97,13 @@ const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
     if (step.type === 'branch') {
         nextStepId = evaluateBranch(step, context);
 
+        const unchosenTargets = (step.branches ?? [])
+            .map(b => b.next)
+            .filter((n): n is string => !!n && n !== nextStepId);
+        for (const unchosenTarget of unchosenTargets) {
+            await workflowQueue.add('deadToken', { definitionId, runId, stepId: unchosenTarget });
+        }
+
     } else if (step.type === 'loop') {
         const shouldLoop = evaluateCondition(step.config['condition'] ?? '', context);
         const loopBackTo = step.config['loopBackTo'] || null;
@@ -91,13 +132,14 @@ const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
 }, { connection, concurrency: 5 });
 
 worker.on('completed', (job) => {
+    if (job.name === 'deadToken') return;
     const { runId, stepId } = job.data as StepJobData;
     console.log(`[worker] run ${runId} | step "${stepId}" done`);
 });
 
 worker.on('failed', (job, err) => {
     console.error(`[worker] job ${job?.id} failed:`, err.message);
-    if (!job) return;
+    if (!job || job.name === 'deadToken') return;
 
     const { runId, stepId, definitionId } = job.data as StepJobData;
     void (async () => {
