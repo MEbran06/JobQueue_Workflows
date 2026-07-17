@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { Worker } from 'bullmq';
 import { workflowQueue } from './queue.js';
-import { executeStep, evaluateBranch, evaluateCondition } from './executor.js';
+import { executeStep, evaluateBranch, evaluateCondition, findDownstreamMergeSteps } from './executor.js';
 import type { ExtraRedisCommands } from './queue.js';
 import { getDefinition } from './db.js';
 import type { StepJobData, StepJobResult } from './types.js';
@@ -97,6 +97,18 @@ worker.on('completed', (job) => {
 
 worker.on('failed', (job, err) => {
     console.error(`[worker] job ${job?.id} failed:`, err.message);
+    if (!job) return;
+
+    const { runId, stepId, definitionId } = job.data as StepJobData;
+    void (async () => {
+        const definition = await getDefinition(definitionId);
+        if (!definition) return;
+        const redis = await workflowQueue.client;
+        const doomedMerges = findDownstreamMergeSteps(definition.steps, stepId);
+        for (const mergeId of doomedMerges) {
+            await redis.set(`run:${runId}:merge:${mergeId}:doomed`, stepId);
+        }
+    })();
 });
 
 console.log('[worker] waiting for jobs...');

@@ -29,6 +29,34 @@ export function evaluateBranch(step: Step, context: Record<string, string>): str
     throw new Error(`No matching branch condition in step "${step.id}"`);
 }
 
+// Walks forward from a step through next/branches (never loopBackTo - that's an
+// intentional backward reference, same exclusion the frontend's cycle-detection
+// in workflow.ts uses) to find every merge step reachable ahead of it. Used when
+// a step fails, to mark any merge steps that can now never receive all their
+// expected arrivals.
+export function findDownstreamMergeSteps(steps: Step[], fromStepId: string): string[] {
+    const byId = new Map(steps.map((s) => [s.id, s]));
+    const found: string[] = [];
+    const visited = new Set<string>();
+    const stack = [fromStepId];
+
+    while (stack.length) {
+        const currentId = stack.pop()!;
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        const current = byId.get(currentId);
+        if (!current) continue;
+
+        if (current.type === 'merge' && currentId !== fromStepId) found.push(currentId);
+
+        if (current.next) stack.push(current.next);
+        (current.branches ?? []).forEach((b) => { if (b.next) stack.push(b.next); });
+    }
+
+    return found;
+}
+
 const anthropic = new Anthropic();
 
 export function interpolate(template: string, context: Record<string, string>): string {
