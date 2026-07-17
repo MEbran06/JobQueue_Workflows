@@ -55,4 +55,33 @@ describe('workflow runs', () => {
         expect(joinEntries.every((s) => s.state === 'completed')).toBe(true);
         expect(joinEntries.some((s) => s.output === 'merge: combined 2 arrivals')).toBe(true);
     });
+
+    it('dooms a merge when a predecessor fails, leaving an unrelated chain unaffected', async () => {
+        const definition: WorkflowDefinition = {
+            id: 'merge-doomed-by-failure-test',
+            name: 'Merge Doomed By Failure Test',
+            entryStepIds: ['start-1', 'start-2', 'start-3'],
+            steps: [
+                { id: 'start-1', type: 'start', config: {}, next: 'boom' },
+                { id: 'boom', type: 'code', config: { code: 'throw new Error("deliberate test failure");' }, next: 'join' },
+                { id: 'start-2', type: 'start', config: {}, next: 'var-c' },
+                { id: 'var-c', type: 'set_variable', config: { value: 'from-c' }, next: 'join' },
+                { id: 'join', type: 'merge', config: {}, next: null },
+                { id: 'start-3', type: 'start', config: {}, next: 'unrelated' },
+                { id: 'unrelated', type: 'set_variable', config: { value: 'standalone-done' }, next: null },
+            ],
+        };
+        await createDefinition(definition);
+
+        const runId = await startRun(definition.id);
+        const status = await waitForRunSettled(runId);
+
+        expect(status.overallState).toBe('failed');
+        const unrelated = status.steps.find((s) => s.step === 'unrelated');
+        expect(unrelated?.state).toBe('completed');
+        expect(unrelated?.output).toBe('standalone-done');
+        const join = status.steps.find((s) => s.step === 'join');
+        expect(join?.state).toBe('failed');
+    });
+
 });
