@@ -4,6 +4,7 @@ import express from 'express';
 import { Job } from 'bullmq';
 import { workflowQueue } from './queue.js';
 import { saveDefinition, getDefinition, listDefinitions, deleteDefinition } from './db.js';
+import type { ExtraRedisCommands } from './queue.js';
 import type { WorkflowDefinition, StepJobData, StepJobResult } from './types.js';
 
 const app = express();
@@ -41,56 +42,66 @@ app.post('/runs', async (req, res) => {
     const definition = await getDefinition(definitionId);
     if (!definition) { res.status(404).json({ error: 'definition not found' }); return; }
 
-    // Assign the job id up front (rather than patching runId in after add())
-    // so the worker never sees a job whose data.runId hasn't been set yet.
     const runId = randomUUID();
-    const job = await workflowQueue.add('step', {
-        definitionId,
-        runId,
-        stepId: definition.entryStepIds[0],
-        context: input ?? {},
-    }, { jobId: runId });
+    const redis = await workflowQueue.client;
+    for (const entryStepId of definition.entryStepIds) {
+        const job = await workflowQueue.add('step', {
+            definitionId,
+            runId,
+            stepId: entryStepId,
+            context: input ?? {},
+        });
+        await (redis as unknown as ExtraRedisCommands).rpush(`run:${runId}:jobs`, job.id!);
+    }
 
-    res.status(202).json({ runId: job.id });
+    res.status(202).json({ runId });
 });
 
 app.get('/runs/:id', async (req, res) => {
-    const steps = [];
-    let jobId: string | undefined = req.params.id;
-    let lastResult: StepJobResult | null = null;
-    // job.getState() and job.returnvalue are separate, non-atomic reads. On a
-    // fast-moving chain (e.g. a tight loop) we can catch a job whose state
-    // already says "completed" but whose return value hasn't landed yet —
-    // that's mid-flight, not the run actually finishing.
-    let caughtMidFlight = false;
+    const redis = await workflowQueue.client;
+    const jobIds = await redis.lrange(`run:${req.params.id}:jobs`, 0, -1);
 
-    while (jobId) {
+    const steps: { step: string; jobId: string; state: string; output?: string }[] = [];
+    let anyStopped = false;
+    let anyFailed = false;
+    let anyUnfinished = false;
+
+    for (const jobId of jobIds) {
         const job: Job | undefined = await Job.fromId(workflowQueue, jobId);
-        if (!job) break;
+        if (!job) continue;
 
         const state = await job.getState();
         const data = job.data as StepJobData;
         const result: StepJobResult | null = (job.returnvalue as StepJobResult | null) ?? null;
-        if (state === 'completed' && result === null) caughtMidFlight = true;
-        lastResult = result;
-        steps.push({ step: data.stepId, jobId, state, output: result?.output });
 
-        jobId = result?.nextJobId ?? undefined;
+        if (result?.stopped) anyStopped = true;
+        if (state === 'failed') anyFailed = true;
+        // job.getState() and job.returnvalue are separate, non-atomic reads. A job
+        // can report "completed" before its return value is visible yet - that's
+        // mid-flight, not finished. Applied per-job now instead of just the last
+        // one walked, since there's no single chain anymore.
+        if (state !== 'completed' && state !== 'failed') anyUnfinished = true;
+        if (state === 'completed' && result === null) anyUnfinished = true;
+
+        steps.push({ step: data.stepId, jobId, state, output: result?.output });
     }
 
-    const overallState = lastResult?.stopped
+    const overallState = anyStopped
         ? 'stopped'
-        : caughtMidFlight
-            ? 'active'
-            : (steps.at(-1)?.state ?? 'unknown');
+        : anyFailed
+            ? 'failed'
+            : anyUnfinished
+                ? 'active'
+                : (jobIds.length > 0 ? 'completed' : 'unknown');
+
     res.json({ runId: req.params.id, overallState, steps });
 });
 
 app.post('/runs/:id/stop', async (req, res) => {
-    const job = await Job.fromId(workflowQueue, req.params.id);
-    if (!job) { res.status(404).json({ error: 'run not found' }); return; }
-
     const redis = await workflowQueue.client;
+    const exists = await (redis as unknown as ExtraRedisCommands).exists(`run:${req.params.id}:jobs`);
+    if (!exists) { res.status(404).json({ error: 'run not found' }); return; }
+
     await redis.set(`stopped:${req.params.id}`, '1', { EX: 3600 });
     res.status(200).json({ stopped: true });
 });

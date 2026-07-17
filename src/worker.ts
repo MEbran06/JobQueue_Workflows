@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Worker } from 'bullmq';
 import { workflowQueue } from './queue.js';
 import { executeStep, evaluateBranch, evaluateCondition } from './executor.js';
+import type { ExtraRedisCommands } from './queue.js';
 import { getDefinition } from './db.js';
 import type { StepJobData, StepJobResult } from './types.js';
 
@@ -49,6 +50,7 @@ const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
         const nextJob = await workflowQueue.add('step', {
             definitionId, runId, stepId: nextStepId, context: newContext,
         });
+        await (redis as unknown as ExtraRedisCommands).rpush(`run:${runId}:jobs`, nextJob.id!);
         return { stepId, output, nextJobId: nextJob.id ?? null };
     }
 
