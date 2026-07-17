@@ -20,6 +20,7 @@ export const TYPE_META: Record<StepType, TypeMeta> = {
   set_variable: { label: 'Set Variable', icon: '=',  color: '#a78bfa', bg: '#2e106520' },
   code:         { label: 'Code',         icon: '{}', color: '#f472b6', bg: '#50072420' },
   loop:         { label: 'Loop',         icon: '↻',  color: '#4ade80', bg: '#14532d20' },
+  merge:        { label: 'Merge',        icon: '⋈',  color: '#818cf8', bg: '#3730a320' },
 };
 
 const SLUG: Record<StepType, string> = {
@@ -30,6 +31,7 @@ const SLUG: Record<StepType, string> = {
   set_variable: 'var',
   code: 'code',
   loop: 'loop',
+  merge: 'merge',
 };
 
 export function slugFor(type: StepType): string {

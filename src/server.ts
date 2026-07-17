@@ -12,8 +12,8 @@ app.use(express.static('frontend/dist'));
 
 app.post('/definitions', async (req, res) => {
     const def = req.body as WorkflowDefinition;
-    if (!def.id || !def.name || !def.steps || !def.entryStepId) {
-        res.status(400).json({ error: 'id, name, entryStepId and steps are required' });
+    if (!def.id || !def.name || !def.steps || !def.entryStepIds || def.entryStepIds.length === 0) {
+        res.status(400).json({ error: 'id, name, entryStepIds and steps are required' });
         return;
     }
     await saveDefinition(def);
@@ -47,7 +47,7 @@ app.post('/runs', async (req, res) => {
     const job = await workflowQueue.add('step', {
         definitionId,
         runId,
-        stepId: definition.entryStepId,
+        stepId: definition.entryStepIds[0],
         context: input ?? {},
     }, { jobId: runId });
 

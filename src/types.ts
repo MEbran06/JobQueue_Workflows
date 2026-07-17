@@ -5,7 +5,7 @@ export interface Branch {
 
 export interface Step {
     id: string;
-    type: 'start' | 'ai_prompt' | 'http_request' | 'branch' | 'set_variable' | 'code' | 'loop';
+    type: 'start' | 'ai_prompt' | 'http_request' | 'branch' | 'set_variable' | 'code' | 'loop' | 'merge';
     config: Record<string, string>;
     next: string | null;
     branches?: Branch[];
@@ -17,7 +17,7 @@ export interface Step {
 export interface WorkflowDefinition {
     id: string;
     name: string;
-    entryStepId: string;
+    entryStepIds: string[];
     steps: Step[];
 }
 

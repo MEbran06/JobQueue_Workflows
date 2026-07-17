@@ -316,19 +316,18 @@ export function reducer(state: WorkflowState, action: Action): WorkflowState {
 export function validateWorkflow(state: WorkflowState): string | null {
   const startNodes = state.nodes.filter((n) => n.type === 'start');
   if (startNodes.length === 0) return 'Add a Start step to mark where the workflow begins.';
-  if (startNodes.length > 1) return `Only one Start step is allowed (found ${startNodes.length}).`;
   return null;
 }
 
 export function buildDefinition(state: WorkflowState): WorkflowDefinition {
   const id = state.workflowId || 'my-workflow';
   const name = state.workflowName || 'My Workflow';
-  const entry = state.nodes.find((n) => n.type === 'start');
+  const entryStepIds = state.nodes.filter((n) => n.type === 'start').map((n) => n.id);
 
   return {
     id,
     name,
-    entryStepId: entry?.id ?? '',
+    entryStepIds,
     steps: state.nodes.map((n) => ({
       id: n.id,
       type: n.type,
