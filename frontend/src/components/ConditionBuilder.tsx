@@ -18,7 +18,7 @@ const OPERATORS: { value: ConditionOperator; label: string }[] = [
   { value: 'else', label: 'else (always)' },
 ];
 
-const CONDITION_RE = /^\{\{(\w+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.*)$/;
+const CONDITION_RE = /^\{\{([\w-]+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.*)$/;
 
 export function parseCondition(condition: string): ConditionParts {
   if (condition.trim() === 'else') return { operator: 'else', variable: '', value: '' };

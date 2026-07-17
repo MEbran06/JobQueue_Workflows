@@ -5,10 +5,13 @@ import { runSandboxed } from './sandbox/runSandboxed.js';
 
 export function evaluateCondition(condition: string, context: Record<string, string>): boolean {
     if (condition.trim() === 'else') return true;
-    const match = condition.match(/\{\{(\w+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)/);
+    const match = condition.match(/\{\{([\w-]+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)/);
     if (!match) return false;
     const [, variable, operator, value] = match;
-    const contextValue = (context[variable] ?? '').toLowerCase();
+    if (!(variable in context)) {
+        throw new Error(`Condition references "${variable}", which is not in context (it hasn't run yet, or doesn't exist)`);
+    }
+    const contextValue = context[variable].toLowerCase();
     const compareValue = value.trim().toLowerCase();
     switch (operator) {
         case 'contains':     return contextValue.includes(compareValue);
@@ -60,7 +63,12 @@ export function findDownstreamMergeSteps(steps: Step[], fromStepId: string): str
 const anthropic = new Anthropic();
 
 export function interpolate(template: string, context: Record<string, string>): string {
-    return template.replace(/\{\{(\w+)\}\}/g, (_, key) => context[key] ?? `{{${key}}}`);
+    return template.replace(/\{\{([\w-]+)\}\}/g, (_, key) => {
+        if (!(key in context)) {
+            throw new Error(`Referenced step "${key}", which is not in context (it hasn't run yet, or doesn't exist)`);
+        }
+        return context[key];
+    });
 }
 
 function interpolateConfig(config: Record<string, string>, context: Record<string, string>): Record<string, string> {
