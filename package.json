@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "server": "tsx src/server.ts",
-    "worker": "tsx src/worker.ts"
+    "worker": "tsx src/worker.ts",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +25,7 @@
     "@types/node": "^26.1.0",
     "@types/sqlite3": "^3.1.11",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.7"
   }
 }

@@ -1,0 +1,5 @@
+services:
+  redis-test:
+    image: redis:alpine
+    ports:
+      - "6380:6379"

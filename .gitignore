@@ -1,6 +1,7 @@
 node_modules/
 graphify-out/
 docs/
+.test-data/
 .claude
 .env
 CLAUDE.md
