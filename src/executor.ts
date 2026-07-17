@@ -80,6 +80,7 @@ export async function executeStep(step: Step, context: Record<string, string>): 
 
         case 'branch':
         case 'loop':
+        case 'merge':
             throw new Error(`"${step.type}" steps are handled by the worker, not executeStep`);
 
         default: {
