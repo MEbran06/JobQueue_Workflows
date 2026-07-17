@@ -309,10 +309,11 @@ export function reducer(state: WorkflowState, action: Action): WorkflowState {
   }
 }
 
-// A `start` node is the workflow's only valid entry point — explicit and
-// stable, unlike inferring it from graph shape (which silently shifts as
-// nodes are added/removed/rewired). validateWorkflow() enforces exactly one
-// exists before Save/Run is allowed to proceed.
+// A `start` node marks a valid entry point — explicit and stable, unlike
+// inferring it from graph shape (which silently shifts as nodes are
+// added/removed/rewired). validateWorkflow() enforces at least one exists
+// before Save/Run is allowed to proceed; a workflow may have more than one,
+// each beginning its own independent concurrently-running chain.
 export function validateWorkflow(state: WorkflowState): string | null {
   const startNodes = state.nodes.filter((n) => n.type === 'start');
   if (startNodes.length === 0) return 'Add a Start step to mark where the workflow begins.';
