@@ -101,12 +101,16 @@ worker.on('failed', (job, err) => {
 
     const { runId, stepId, definitionId } = job.data as StepJobData;
     void (async () => {
-        const definition = await getDefinition(definitionId);
-        if (!definition) return;
-        const redis = await workflowQueue.client;
-        const doomedMerges = findDownstreamMergeSteps(definition.steps, stepId);
-        for (const mergeId of doomedMerges) {
-            await redis.set(`run:${runId}:merge:${mergeId}:doomed`, stepId);
+        try {
+            const definition = await getDefinition(definitionId);
+            if (!definition) return;
+            const redis = await workflowQueue.client;
+            const doomedMerges = findDownstreamMergeSteps(definition.steps, stepId);
+            for (const mergeId of doomedMerges) {
+                await redis.set(`run:${runId}:merge:${mergeId}:doomed`, stepId);
+            }
+        } catch (doomErr) {
+            console.error(`[worker] failed to mark downstream merges doomed for run ${runId} step ${stepId}:`, doomErr);
         }
     })();
 });

@@ -58,8 +58,9 @@ app.post('/runs', async (req, res) => {
 });
 
 app.get('/runs/:id', async (req, res) => {
+    const runId = req.params.id;
     const redis = await workflowQueue.client;
-    const jobIds = await redis.lrange(`run:${req.params.id}:jobs`, 0, -1);
+    const jobIds = await redis.lrange(`run:${runId}:jobs`, 0, -1);
 
     const steps: { step: string; jobId: string; state: string; output?: string }[] = [];
     let anyStopped = false;
@@ -74,8 +75,21 @@ app.get('/runs/:id', async (req, res) => {
         const data = job.data as StepJobData;
         const result: StepJobResult | null = (job.returnvalue as StepJobResult | null) ?? null;
 
+        // A merge arrival that wasn't the last one completes with no nextJobId -
+        // normally indistinguishable from a genuinely finished leaf step. If a
+        // sibling feeding the same merge fails AFTER this arrival already
+        // returned, the doomed flag lands too late for this job to have seen it
+        // itself. Re-check live on every poll so the reported state
+        // self-corrects once the flag lands, instead of staying stuck at
+        // "waiting" forever - this does not mutate the underlying BullMQ job.
+        let effectiveState = state;
+        if (state === 'completed' && result?.nextJobId === null && result.output?.startsWith('merge: waiting')) {
+            const doomed = await redis.get(`run:${runId}:merge:${data.stepId}:doomed`);
+            if (doomed) effectiveState = 'failed';
+        }
+
         if (result?.stopped) anyStopped = true;
-        if (state === 'failed') anyFailed = true;
+        if (effectiveState === 'failed') anyFailed = true;
         // job.getState() and job.returnvalue are separate, non-atomic reads. A job
         // can report "completed" before its return value is visible yet - that's
         // mid-flight, not finished. Applied per-job now instead of just the last
@@ -83,7 +97,7 @@ app.get('/runs/:id', async (req, res) => {
         if (state !== 'completed' && state !== 'failed') anyUnfinished = true;
         if (state === 'completed' && result === null) anyUnfinished = true;
 
-        steps.push({ step: data.stepId, jobId, state, output: result?.output });
+        steps.push({ step: data.stepId, jobId, state: effectiveState, output: result?.output });
     }
 
     const overallState = anyStopped
@@ -94,7 +108,7 @@ app.get('/runs/:id', async (req, res) => {
                 ? 'active'
                 : (jobIds.length > 0 ? 'completed' : 'unknown');
 
-    res.json({ runId: req.params.id, overallState, steps });
+    res.json({ runId, overallState, steps });
 });
 
 app.post('/runs/:id/stop', async (req, res) => {
