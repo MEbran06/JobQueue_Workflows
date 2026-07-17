@@ -123,4 +123,45 @@ describe('workflow runs', () => {
         expect(unrelated?.output).toBe('standalone-done');
     });
 
+    it('dooms both merges in a chain from a single branch resolution', async () => {
+        const definition: WorkflowDefinition = {
+            id: 'chained-merge-exclude-test',
+            name: 'Chained Merge Exclude Test',
+            entryStepIds: ['start-1', 'start-2', 'start-3'],
+            steps: [
+                { id: 'start-1', type: 'start', config: {}, next: 'the-branch' },
+                {
+                    id: 'the-branch', type: 'branch', config: {}, next: null,
+                    branches: [
+                        { condition: '{{start-1}} equals never-matches', next: 'path-a' },
+                        { condition: 'else', next: 'path-b' },
+                    ],
+                },
+                { id: 'path-a', type: 'set_variable', config: { value: 'from-a' }, next: 'm1' },
+                { id: 'path-b', type: 'set_variable', config: { value: 'from-b' }, next: null },
+                { id: 'start-2', type: 'start', config: {}, next: 'var-c' },
+                { id: 'var-c', type: 'set_variable', config: { value: 'from-c' }, next: 'm1' },
+                { id: 'm1', type: 'merge', config: {}, next: 'm2' },
+                { id: 'start-3', type: 'start', config: {}, next: 'var-d' },
+                { id: 'var-d', type: 'set_variable', config: { value: 'from-d' }, next: 'm2' },
+                { id: 'm2', type: 'merge', config: {}, next: 'final' },
+                { id: 'final', type: 'set_variable', config: { value: 'done' }, next: null },
+            ],
+        };
+        await createDefinition(definition);
+
+        const runId = await startRun(definition.id);
+        const status = await waitForRunSettled(runId);
+
+        expect(status.overallState).toBe('failed');
+        expect(status.steps.find((s) => s.step === 'path-a')).toBeUndefined();
+        expect(status.steps.find((s) => s.step === 'final')).toBeUndefined();
+        const m1Steps = status.steps.filter((s) => s.step === 'm1');
+        const m2Steps = status.steps.filter((s) => s.step === 'm2');
+        expect(m1Steps).toHaveLength(1);
+        expect(m2Steps).toHaveLength(1);
+        expect(m1Steps[0]?.state).toBe('failed');
+        expect(m2Steps[0]?.state).toBe('failed');
+    });
+
 });
