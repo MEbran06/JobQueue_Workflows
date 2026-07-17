@@ -24,6 +24,39 @@ const worker = new Worker<any, StepJobResult>('workflow-steps', async (job) => {
 
     console.log(`[worker] run ${runId} | step "${stepId}" (${step.type})`);
 
+    if (step.type === 'merge') {
+        const doomed = await redis.get(`run:${runId}:merge:${stepId}:doomed`);
+        if (doomed) {
+            throw new Error(`Merge step "${stepId}" cannot complete: predecessor "${doomed}" failed`);
+        }
+
+        const extraRedis = redis as unknown as ExtraRedisCommands;
+        await extraRedis.rpush(`run:${runId}:merge:${stepId}:contexts`, JSON.stringify(context));
+        const arrivalCount = await extraRedis.incr(`run:${runId}:merge:${stepId}:count`);
+        const expectedCount = definition.steps.filter(s => s.next === stepId).length;
+
+        if (arrivalCount < expectedCount) {
+            return { stepId, output: `merge: waiting (${arrivalCount}/${expectedCount} arrived)`, nextJobId: null };
+        }
+
+        const rawContexts = await redis.lrange(`run:${runId}:merge:${stepId}:contexts`, 0, -1);
+        const combinedContext: Record<string, string> = Object.assign({}, ...rawContexts.map(c => JSON.parse(c)));
+        const mergedOutput = `merge: combined ${expectedCount} arrivals`;
+        const mergedNewContext = { ...combinedContext, [stepId]: mergedOutput };
+
+        if (!step.next) {
+            return { stepId, output: mergedOutput, nextJobId: null };
+        }
+        if (await redis.get(`stopped:${runId}`)) {
+            return { stepId, output: 'Run stopped by user', nextJobId: null, stopped: true };
+        }
+        const mergeNextJob = await workflowQueue.add('step', {
+            definitionId, runId, stepId: step.next, context: mergedNewContext,
+        });
+        await extraRedis.rpush(`run:${runId}:jobs`, mergeNextJob.id!);
+        return { stepId, output: mergedOutput, nextJobId: mergeNextJob.id ?? null };
+    }
+
     let output = '';
     let nextStepId: string | null;
 
