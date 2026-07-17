@@ -84,4 +84,43 @@ describe('workflow runs', () => {
         expect(join?.state).toBe('failed');
     });
 
+    it('dooms a merge when a branch excludes one of its predecessors', async () => {
+        const definition: WorkflowDefinition = {
+            id: 'branch-merge-exclude-test',
+            name: 'Branch Merge Exclude Test',
+            entryStepIds: ['start-1', 'start-2', 'start-3'],
+            steps: [
+                { id: 'start-1', type: 'start', config: {}, next: 'the-branch' },
+                {
+                    id: 'the-branch', type: 'branch', config: {}, next: null,
+                    branches: [
+                        { condition: '{{start-1}} equals never-matches', next: 'path-a' },
+                        { condition: 'else', next: 'path-b' },
+                    ],
+                },
+                { id: 'path-a', type: 'set_variable', config: { value: 'from-a' }, next: 'join' },
+                { id: 'path-b', type: 'set_variable', config: { value: 'from-b' }, next: null },
+                { id: 'start-2', type: 'start', config: {}, next: 'var-c' },
+                { id: 'var-c', type: 'set_variable', config: { value: 'from-c' }, next: 'join' },
+                { id: 'join', type: 'merge', config: {}, next: 'final' },
+                { id: 'final', type: 'set_variable', config: { value: 'done' }, next: null },
+                { id: 'start-3', type: 'start', config: {}, next: 'unrelated' },
+                { id: 'unrelated', type: 'set_variable', config: { value: 'standalone-done' }, next: null },
+            ],
+        };
+        await createDefinition(definition);
+
+        const runId = await startRun(definition.id);
+        const status = await waitForRunSettled(runId);
+
+        expect(status.overallState).toBe('failed');
+        expect(status.steps.find((s) => s.step === 'path-a')).toBeUndefined();
+        expect(status.steps.find((s) => s.step === 'final')).toBeUndefined();
+        const join = status.steps.find((s) => s.step === 'join');
+        expect(join?.state).toBe('failed');
+        const unrelated = status.steps.find((s) => s.step === 'unrelated');
+        expect(unrelated?.state).toBe('completed');
+        expect(unrelated?.output).toBe('standalone-done');
+    });
+
 });
