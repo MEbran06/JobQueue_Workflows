@@ -14,6 +14,7 @@ const TYPE_OPTIONS: { value: StepType; label: string }[] = [
   { value: 'set_variable', label: '=  Set Variable' },
   { value: 'code', label: '{} Code' },
   { value: 'loop', label: '↻ Loop' },
+  { value: 'merge', label: '⋈ Merge' },
 ];
 
 const hintStyle = { fontSize: '0.7rem', color: '#4b5563', marginTop: '0.5rem' };
@@ -22,8 +23,15 @@ const codeStyle = { color: '#94a3b8' };
 const HINTS: Partial<Record<StepType, ReactNode>> = {
   start: (
     <p style={hintStyle}>
-      Marks the workflow's entry point explicitly, so it doesn't depend on which node happens to have no connections
-      pointing to it. Use one per workflow — connect its <code style={codeStyle}>next</code> to the real first step.
+      Marks a workflow's entry point explicitly, so it doesn't depend on which node happens to have no connections
+      pointing to it. Add more than one to run independent chains concurrently — connect each one's{' '}
+      <code style={codeStyle}>next</code> to that chain's first real step.
+    </p>
+  ),
+  merge: (
+    <p style={hintStyle}>
+      Waits for every step whose <code style={codeStyle}>next</code> points here, then combines all of their outputs
+      into shared context before continuing. Connect two or more chains to this step to use it.
     </p>
   ),
   set_variable: (
@@ -212,7 +220,7 @@ function Sidebar({ width }: SidebarProps) {
                 />
               )
             )}
-            {node.type !== 'loop' && (
+            {node.type !== 'loop' && node.type !== 'merge' && (
               <button className="add-btn" onClick={() => dispatch({ kind: 'ADD_KEY', nodeId: node.id })}>
                 + Add field
               </button>
