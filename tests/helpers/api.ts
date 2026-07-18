@@ -41,8 +41,17 @@ export async function waitForRunSettled(runId: string, opts?: { timeoutMs?: numb
     while (Date.now() < deadline) {
         const res = await fetch(`${BASE_URL}/runs/${runId}`);
         const status = await res.json() as RunStatus;
-        if (status.overallState !== 'active') return status;
-        await new Promise((r) => setTimeout(r, 250));
+        if (status.overallState === 'failed' || status.overallState === 'stopped') return status;
+        if (status.overallState === 'completed') {
+            // A run can briefly report "completed" before an async dead-token
+            // chain finishes marking a merge doomed (self-corrects on the next
+            // poll - see src/server.ts's live doomed re-check). Give that a
+            // short grace window before treating "completed" as final.
+            await new Promise(r => setTimeout(r, 500));
+            const recheck = await fetch(`${BASE_URL}/runs/${runId}`);
+            return (await recheck.json()) as RunStatus;
+        }
+        await new Promise(r => setTimeout(r, 250));
     }
     throw new Error(`Run ${runId} did not settle within ${timeoutMs}ms`);
 }
