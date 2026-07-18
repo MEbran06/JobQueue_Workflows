@@ -123,8 +123,8 @@ function compileCondition(condition: string, index: Map<string, number>): Compil
         case 'notEquals':   return { expr: `!ci_equals(${ref}, ${literal})`, refIndex };
         case 'contains':    return { expr: `ci_contains(${ref}, ${literal})`, refIndex };
         case 'startsWith':  return { expr: `ci_starts_with(${ref}, ${literal})`, refIndex };
-        case 'lessThan':    return { expr: `atof(${ref}) < atof(${literal})`, refIndex };
-        case 'greaterThan': return { expr: `atof(${ref}) > atof(${literal})`, refIndex };
+        case 'lessThan':    return { expr: `numeric_lt(${ref}, ${literal})`, refIndex };
+        case 'greaterThan': return { expr: `numeric_gt(${ref}, ${literal})`, refIndex };
         default:            throw new Error(`Unknown operator "${operator}"`);
     }
 }
@@ -247,6 +247,30 @@ static int ci_contains(const char *haystack, const char *needle) {
 static void no_matching_branch(const char *stepName) {
     fprintf(stderr, "No matching branch condition in step \\"%s\\"\\n", stepName);
     exit(1);
+}
+
+static int strict_parse_double(const char *s, double *out) {
+    while (isspace((unsigned char)*s)) s++;
+    if (*s == '\\0') { *out = 0.0; return 1; }
+    char *endptr;
+    double value = strtod(s, &endptr);
+    if (endptr == s) return 0;
+    while (isspace((unsigned char)*endptr)) endptr++;
+    if (*endptr != '\\0') return 0;
+    *out = value;
+    return 1;
+}
+
+static int numeric_lt(const char *a, const char *b) {
+    double x, y;
+    if (!strict_parse_double(a, &x) || !strict_parse_double(b, &y)) return 0;
+    return x < y;
+}
+
+static int numeric_gt(const char *a, const char *b) {
+    double x, y;
+    if (!strict_parse_double(a, &x) || !strict_parse_double(b, &y)) return 0;
+    return x > y;
 }
 
 ${stepFns.join('\n\n')}

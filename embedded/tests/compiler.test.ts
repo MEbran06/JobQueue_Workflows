@@ -46,4 +46,13 @@ describe('embedded compiler', () => {
         expect(actual).toEqual(expected);
         expect(actual).not.toContain('path-a=from-a'); // the untaken branch never ran
     });
+
+    it('compiles numeric comparisons matching Number()-style strict parsing, not atof()-style lenient parsing', async () => {
+        const definition = loadFixture('branch-numeric.json');
+        const expected = await referenceTrace(definition);
+        const actual = compiledTrace(definition);
+        expect(actual).toEqual(expected);
+        expect(actual).toContain('path-b=else-taken');
+        expect(actual).not.toContain('path-a=less-than-taken');
+    });
 });

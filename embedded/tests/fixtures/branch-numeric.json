@@ -1,0 +1,15 @@
+{
+  "id": "branch-numeric",
+  "name": "Branch Numeric",
+  "entryStepIds": ["start-1"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "var-1"},
+    {"id": "var-1", "type": "set_variable", "config": {"value": "not-a-number"}, "next": "the-branch"},
+    {"id": "the-branch", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{var-1}} lessThan 100", "next": "path-a"},
+      {"condition": "else", "next": "path-b"}
+    ]},
+    {"id": "path-a", "type": "set_variable", "config": {"value": "less-than-taken"}, "next": null},
+    {"id": "path-b", "type": "set_variable", "config": {"value": "else-taken"}, "next": null}
+  ]
+}
