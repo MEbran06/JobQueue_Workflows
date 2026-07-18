@@ -1,0 +1,14 @@
+{
+  "id": "unset-reference",
+  "name": "Unset Reference",
+  "entryStepIds": ["start-1"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "the-branch"},
+    {"id": "the-branch", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{start-1}} equals never-matches", "next": "path-a"},
+      {"condition": "else", "next": "path-b"}
+    ]},
+    {"id": "path-a", "type": "set_variable", "config": {"value": "from-a"}, "next": null},
+    {"id": "path-b", "type": "set_variable", "config": {"value": "ref: {{path-a}}"}, "next": null}
+  ]
+}
