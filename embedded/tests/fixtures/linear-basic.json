@@ -1,0 +1,10 @@
+{
+  "id": "linear-basic",
+  "name": "Linear Basic",
+  "entryStepIds": ["start-1"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "set-1"},
+    {"id": "set-1", "type": "set_variable", "config": {"value": "hello"}, "next": "set-2"},
+    {"id": "set-2", "type": "set_variable", "config": {"value": "got: {{set-1}}"}, "next": null}
+  ]
+}
