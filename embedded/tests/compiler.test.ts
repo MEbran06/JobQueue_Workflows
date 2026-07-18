@@ -23,7 +23,7 @@ function compiledTrace(definition: WorkflowDefinition): string[] {
     fs.writeFileSync(cPath, generateC(definition));
     execSync(`gcc "${cPath}" -o "${exePath}"`, { stdio: 'pipe' });
     const stdout = execSync(`"${exePath}"`).toString();
-    return stdout.trim().split('\n').filter(line => line.length > 0);
+    return stdout.trim().split('\n').map(line => line.replace(/\r$/, '')).filter(line => line.length > 0);
 }
 
 function loadFixture(name: string): WorkflowDefinition {
