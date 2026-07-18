@@ -1,0 +1,9 @@
+{
+  "id": "literal-percent",
+  "name": "Literal Percent",
+  "entryStepIds": ["start-1"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "set-1"},
+    {"id": "set-1", "type": "set_variable", "config": {"value": "100% complete"}, "next": null}
+  ]
+}

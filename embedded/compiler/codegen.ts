@@ -11,7 +11,7 @@ function validateScope(definition: WorkflowDefinition): void {
     }
     for (const step of definition.steps) {
         if (!SUPPORTED_TYPES.has(step.type)) {
-            throw new Error(`Step "${step.id}" has unsupported type "${step.type}" (only start/set_variable are supported so far)`);
+            throw new Error(`Step "${step.id}" has unsupported type "${step.type}" (only start/set_variable/branch are supported so far)`);
         }
     }
 }
@@ -84,14 +84,21 @@ interface CompiledTemplate {
 // contains a reference - one code path, no special-casing plain literals.
 function compileTemplate(template: string, index: Map<string, number>): CompiledTemplate {
     const refIndexes: number[] = [];
-    const format = template.replace(REFERENCE_RE, (_match, key: string) => {
+    let format = '';
+    let lastIndex = 0;
+    for (const match of template.matchAll(REFERENCE_RE)) {
+        const literal = template.slice(lastIndex, match.index);
+        format += literal.replace(/%/g, '%%');
+        const key = match[1];
         const idx = index.get(key);
         if (idx === undefined) {
             throw new Error(`Template references "${key}", which does not exist in this definition`);
         }
         refIndexes.push(idx);
-        return '%s';
-    });
+        format += '%s';
+        lastIndex = match.index! + match[0].length;
+    }
+    format += template.slice(lastIndex).replace(/%/g, '%%');
     return { format, refIndexes };
 }
 
@@ -169,23 +176,23 @@ ${guards}    snprintf(${bufName}, MAX_OUTPUT_LEN, ${JSON.stringify(format)}${arg
     if (step.type === 'branch') {
         const branches = step.branches ?? [];
         const lines: string[] = [];
+        const setAndReturn = (targetIndex: number) =>
+            `    ctx->outputs[${myIndex}] = "";\n    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);\n    return ${targetIndex};`;
         let hasElse = false;
         for (const b of branches) {
             const targetIndex = resolveNext(step.id, b.next, index);
             if (b.condition.trim() === 'else') {
                 hasElse = true;
-                lines.push(`    return ${targetIndex};`);
+                lines.push(setAndReturn(targetIndex));
                 break;
             }
             const compiled = compileCondition(b.condition, index);
-            lines.push(`    check_set(ctx, ${compiled.refIndex});\n    if (${compiled.expr}) return ${targetIndex};`);
+            lines.push(`    check_set(ctx, ${compiled.refIndex});\n    if (${compiled.expr}) {\n${setAndReturn(targetIndex)}\n    }`);
         }
         if (!hasElse) {
             lines.push(`    no_matching_branch(STEP_NAMES[${myIndex}]);\n    return -1; /* unreachable */`);
         }
         return `int ${fnName}(Context *ctx) {
-    ctx->outputs[${myIndex}] = "";
-    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);
 ${lines.join('\n')}
 }`;
     }

@@ -1,0 +1,19 @@
+{
+  "id": "branch-unset-condition",
+  "name": "Branch Unset Condition",
+  "entryStepIds": ["start-1"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "branch-1"},
+    {"id": "branch-1", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{start-1}} equals never-matches", "next": "path-a"},
+      {"condition": "else", "next": "branch-2"}
+    ]},
+    {"id": "path-a", "type": "set_variable", "config": {"value": "from-a"}, "next": null},
+    {"id": "branch-2", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{path-a}} equals x", "next": "path-b"},
+      {"condition": "else", "next": "path-c"}
+    ]},
+    {"id": "path-b", "type": "set_variable", "config": {"value": "from-b"}, "next": null},
+    {"id": "path-c", "type": "set_variable", "config": {"value": "from-c"}, "next": null}
+  ]
+}

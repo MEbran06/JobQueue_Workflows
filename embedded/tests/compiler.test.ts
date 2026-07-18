@@ -85,4 +85,43 @@ describe('embedded compiler', () => {
         expect(exitCode).not.toBe(0);
         expect(stdout.trim().split('\n').map(line => line.replace(/\r$/, '')).filter(line => line.length > 0)).toEqual(['start-1=', 'the-branch=']);
     });
+
+    it('preserves a literal percent sign in a set_variable value without corrupting output', async () => {
+        const definition = loadFixture('literal-percent.json');
+        const expected = await referenceTrace(definition);
+        const actual = compiledTrace(definition);
+        expect(actual).toEqual(expected);
+        expect(actual).toContain('set-1=100% complete');
+    });
+
+    it('does not print a branch trace line before its own condition guard fires', async () => {
+        const definition = loadFixture('branch-unset-condition.json');
+
+        await createDefinition(definition);
+        const runId = await startRun(definition.id);
+        const status = await waitForRunSettled(runId);
+        expect(status.overallState).toBe('failed');
+        expect(status.steps.find((s) => s.step === 'start-1')?.state).toBe('completed');
+        expect(status.steps.find((s) => s.step === 'branch-1')?.state).toBe('completed');
+        expect(status.steps.find((s) => s.step === 'branch-2')?.state).toBe('failed');
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobqueue-embedded-'));
+        const cPath = path.join(tmpDir, 'out.c');
+        const exePath = path.join(tmpDir, `out${EXE_EXT}`);
+        fs.writeFileSync(cPath, generateC(definition));
+        execSync(`gcc "${cPath}" -o "${exePath}"`, { stdio: 'pipe' });
+
+        let stdout = '';
+        let exitCode = 0;
+        try {
+            stdout = execSync(`"${exePath}"`).toString();
+        } catch (err) {
+            const e = err as { status: number; stdout: Buffer };
+            exitCode = e.status;
+            stdout = e.stdout.toString();
+        }
+        expect(exitCode).not.toBe(0);
+        const lines = stdout.trim().split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.length > 0);
+        expect(lines).toEqual(['start-1=', 'branch-1=']);
+    });
 });
