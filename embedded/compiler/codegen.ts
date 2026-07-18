@@ -1,8 +1,9 @@
 import type { WorkflowDefinition, Step } from '../../src/types.js';
 import { sanitizeStepIds } from './identifiers.js';
 
-const SUPPORTED_TYPES = new Set(['start', 'set_variable']);
+const SUPPORTED_TYPES = new Set(['start', 'set_variable', 'branch']);
 const REFERENCE_RE = /\{\{([\w-]+)\}\}/g;
+const CONDITION_RE = /^\{\{([\w-]+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)$/;
 
 function validateScope(definition: WorkflowDefinition): void {
     if (definition.entryStepIds.length !== 1) {
@@ -94,6 +95,40 @@ function compileTemplate(template: string, index: Map<string, number>): Compiled
     return { format, refIndexes };
 }
 
+interface CompiledCondition {
+    expr: string;
+    refIndex: number;
+}
+
+// Same operator semantics as evaluateCondition in src/executor.ts:
+// case-insensitive string comparison, numeric comparison via parsed floats.
+// Uses hand-rolled ci_equals/ci_starts_with/ci_contains (see the generated
+// preamble below) instead of strcasecmp/strcasestr, which aren't guaranteed
+// available on every C toolchain.
+function compileCondition(condition: string, index: Map<string, number>): CompiledCondition {
+    const match = condition.match(CONDITION_RE);
+    if (!match) {
+        throw new Error(`Condition "${condition}" is not recognized (expected "{{step}} operator value" or "else")`);
+    }
+    const [, variable, operator, rawValue] = match;
+    const refIndex = index.get(variable);
+    if (refIndex === undefined) {
+        throw new Error(`Condition references "${variable}", which does not exist in this definition`);
+    }
+    const literal = JSON.stringify(rawValue.trim());
+    const ref = `ctx->outputs[${refIndex}]`;
+
+    switch (operator) {
+        case 'equals':      return { expr: `ci_equals(${ref}, ${literal})`, refIndex };
+        case 'notEquals':   return { expr: `!ci_equals(${ref}, ${literal})`, refIndex };
+        case 'contains':    return { expr: `ci_contains(${ref}, ${literal})`, refIndex };
+        case 'startsWith':  return { expr: `ci_starts_with(${ref}, ${literal})`, refIndex };
+        case 'lessThan':    return { expr: `atof(${ref}) < atof(${literal})`, refIndex };
+        case 'greaterThan': return { expr: `atof(${ref}) > atof(${literal})`, refIndex };
+        default:            throw new Error(`Unknown operator "${operator}"`);
+    }
+}
+
 function resolveNext(fromStepId: string, next: string | null, index: Map<string, number>): number {
     if (next === null) return -1;
     const idx = index.get(next);
@@ -131,6 +166,30 @@ ${guards}    snprintf(${bufName}, MAX_OUTPUT_LEN, ${JSON.stringify(format)}${arg
 }`;
     }
 
+    if (step.type === 'branch') {
+        const branches = step.branches ?? [];
+        const lines: string[] = [];
+        let hasElse = false;
+        for (const b of branches) {
+            const targetIndex = resolveNext(step.id, b.next, index);
+            if (b.condition.trim() === 'else') {
+                hasElse = true;
+                lines.push(`    return ${targetIndex};`);
+                break;
+            }
+            const compiled = compileCondition(b.condition, index);
+            lines.push(`    check_set(ctx, ${compiled.refIndex});\n    if (${compiled.expr}) return ${targetIndex};`);
+        }
+        if (!hasElse) {
+            lines.push(`    no_matching_branch(STEP_NAMES[${myIndex}]);\n    return -1; /* unreachable */`);
+        }
+        return `int ${fnName}(Context *ctx) {
+    ctx->outputs[${myIndex}] = "";
+    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);
+${lines.join('\n')}
+}`;
+    }
+
     throw new Error(`Unsupported step type "${step.type}" reached codegen (should have been caught by validateScope)`);
 }
 
@@ -146,6 +205,7 @@ export function generateC(definition: WorkflowDefinition): string {
 
     return `#include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #define MAX_OUTPUT_LEN 256
 
@@ -158,6 +218,35 @@ static void check_set(Context *ctx, int idx) {
         fprintf(stderr, "step \\"%s\\" has no output yet\\n", STEP_NAMES[idx]);
         exit(1);
     }
+}
+
+static int ci_equals(const char *a, const char *b) {
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
+        a++; b++;
+    }
+    return *a == *b;
+}
+
+static int ci_starts_with(const char *s, const char *prefix) {
+    while (*prefix) {
+        if (*s == '\\0' || tolower((unsigned char)*s) != tolower((unsigned char)*prefix)) return 0;
+        s++; prefix++;
+    }
+    return 1;
+}
+
+static int ci_contains(const char *haystack, const char *needle) {
+    if (*needle == '\\0') return 1;
+    for (const char *h = haystack; *h; h++) {
+        if (ci_starts_with(h, needle)) return 1;
+    }
+    return 0;
+}
+
+static void no_matching_branch(const char *stepName) {
+    fprintf(stderr, "No matching branch condition in step \\"%s\\"\\n", stepName);
+    exit(1);
 }
 
 ${stepFns.join('\n\n')}

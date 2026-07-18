@@ -38,4 +38,12 @@ describe('embedded compiler', () => {
         const actual = compiledTrace(definition);
         expect(actual).toEqual(expected);
     });
+
+    it('compiles and runs a branch matching the reference engine, taking the else path', async () => {
+        const definition = loadFixture('branch-basic.json');
+        const expected = await referenceTrace(definition);
+        const actual = compiledTrace(definition);
+        expect(actual).toEqual(expected);
+        expect(actual).not.toContain('path-a=from-a'); // the untaken branch never ran
+    });
 });
