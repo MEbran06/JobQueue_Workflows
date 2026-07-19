@@ -135,4 +135,16 @@ describe('embedded compiler concurrency', () => {
         expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
         expect([...lines].some((l) => l.startsWith('final='))).toBe(false);
     });
+
+    it('flows a merge winner through a second merge to a final step, matching the reference engine', async () => {
+        const definition = loadFixture('chained-merge-success.json');
+        const reference = await referenceRun(definition);
+        expect(reference.overallState).toBe('completed');
+        expect(reference.steps.find((s) => s.step === 'final')?.state).toBe('completed');
+        expect(reference.steps.find((s) => s.step === 'final')?.output).toBe('done');
+
+        const { lines, exitCode } = compiledRun(definition);
+        expect(exitCode).toBe(0);
+        assertCompiledContainsCompletedSteps(lines, reference.steps);
+    });
 });

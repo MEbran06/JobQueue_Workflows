@@ -317,6 +317,11 @@ typedef struct { char *outputs[${order.length}]; } Context;
 static Context ctx;
 static const char *STEP_NAMES[] = { ${stepNamesLiteral} };
 static const int MERGE_EXPECTED[] = { ${numMerges > 0 ? expectedCountsLiteral : '0'} };
+// NOTE: only merge_mutex[0] gets the explicit PTHREAD_MUTEX_INITIALIZER; elements
+// beyond it are zero-initialized by static storage rules. POSIX only guarantees a
+// valid mutex for the element given the explicit initializer - zero-init working for
+// the rest is implementation-defined (verified empirically correct on this MSYS2/
+// winpthreads toolchain, but not guaranteed to carry to a future FreeRTOS port).
 static pthread_mutex_t merge_mutex[NUM_MERGES > 0 ? NUM_MERGES : 1] = { PTHREAD_MUTEX_INITIALIZER };
 static int merge_arrivals[NUM_MERGES > 0 ? NUM_MERGES : 1];
 static int merge_doomed[NUM_MERGES > 0 ? NUM_MERGES : 1];
