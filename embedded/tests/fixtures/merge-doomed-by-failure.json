@@ -1,0 +1,19 @@
+{
+  "id": "merge-doomed-by-failure",
+  "name": "Merge Doomed By Failure",
+  "entryStepIds": ["start-1", "start-2", "start-3"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "the-branch"},
+    {"id": "the-branch", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{start-1}} equals never-matches", "next": "path-a"},
+      {"condition": "else", "next": "boom"}
+    ]},
+    {"id": "path-a", "type": "set_variable", "config": {"value": "from-a"}, "next": null},
+    {"id": "boom", "type": "set_variable", "config": {"value": "{{path-a}}"}, "next": "join"},
+    {"id": "start-2", "type": "start", "config": {}, "next": "var-c"},
+    {"id": "var-c", "type": "set_variable", "config": {"value": "from-c"}, "next": "join"},
+    {"id": "join", "type": "merge", "config": {}, "next": null},
+    {"id": "start-3", "type": "start", "config": {}, "next": "unrelated"},
+    {"id": "unrelated", "type": "set_variable", "config": {"value": "standalone-done"}, "next": null}
+  ]
+}

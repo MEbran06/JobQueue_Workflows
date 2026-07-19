@@ -81,4 +81,22 @@ describe('embedded compiler concurrency', () => {
         expect(exitCode).toBe(0);
         assertCompiledContainsCompletedSteps(lines, reference.steps);
     });
+
+    it('dooms a merge when a predecessor fails, leaving an unrelated chain unaffected', async () => {
+        const definition = loadFixture('merge-doomed-by-failure.json');
+
+        const reference = await referenceRun(definition);
+        expect(reference.overallState).toBe('failed');
+        expect(reference.steps.find((s) => s.step === 'unrelated')?.state).toBe('completed');
+        expect(reference.steps.find((s) => s.step === 'var-c')?.state).toBe('completed');
+        expect(reference.steps.find((s) => s.step === 'boom')?.state).toBe('failed');
+
+        const { lines, exitCode } = compiledRun(definition);
+        expect(exitCode).not.toBe(0);
+        expect(lines.has('unrelated=standalone-done')).toBe(true);
+        expect(lines.has('var-c=from-c')).toBe(true);
+        expect(lines.has('join=merge: waiting (1/2 arrived)')).toBe(true);
+        expect([...lines].some((l) => l.startsWith('boom='))).toBe(false);
+        expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
+    });
 });

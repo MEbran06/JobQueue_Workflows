@@ -65,6 +65,28 @@ function computeExpectedCounts(order: Step[], mergeIndex: Map<string, number>): 
     return counts;
 }
 
+// For every step (by its dense step index), the complete, already-transitively-
+// closed set of merge indices that become doomed if that step never runs. Computed
+// once per compile via memoized DFS (the graph is acyclic - no loop steps exist),
+// so runtime doom-propagation never needs to walk the graph itself.
+function computeDownstreamMerges(order: Step[], byId: Map<string, Step>, mergeIndex: Map<string, number>): number[][] {
+    const memo = new Map<string, Set<number>>();
+    function compute(stepId: string): Set<number> {
+        if (memo.has(stepId)) return memo.get(stepId)!;
+        const result = new Set<number>();
+        memo.set(stepId, result);
+        const step = byId.get(stepId)!;
+        const successors = [step.next, ...(step.branches ?? []).map(b => b.next)].filter((s): s is string => !!s);
+        for (const succ of successors) {
+            const succStep = byId.get(succ)!;
+            if (succStep.type === 'merge') result.add(mergeIndex.get(succ)!);
+            for (const m of compute(succ)) result.add(m);
+        }
+        return result;
+    }
+    return order.map(step => [...compute(step.id)].sort((a, b) => a - b));
+}
+
 function extractReferences(template: string): string[] {
     const refs: string[] = [];
     for (const match of template.matchAll(REFERENCE_RE)) {
@@ -182,7 +204,7 @@ function generateStepFunction(step: Step, index: Map<string, number>, names: Map
         const value = step.config['value'] ?? '';
         const { format, refIndexes } = compileTemplate(value, index);
         const bufName = `buf_${names.get(step.id)}`;
-        const guards = refIndexes.map(i => `    check_set(ctx, ${i});\n`).join('');
+        const guards = refIndexes.map(i => `    if (!check_set(ctx, ${i})) { doom_downstream(${myIndex}); atomic_store(&run_failed, 1); return -1; }\n`).join('');
         const argsStr = refIndexes.map(i => `, ctx->outputs[${i}]`).join('');
         return `static char ${bufName}[MAX_OUTPUT_LEN];
 
@@ -208,7 +230,7 @@ ${guards}    snprintf(${bufName}, MAX_OUTPUT_LEN, ${JSON.stringify(format)}${arg
                 break;
             }
             const compiled = compileCondition(b.condition, index);
-            lines.push(`    check_set(ctx, ${compiled.refIndex});\n    if (${compiled.expr}) {\n${setAndReturn(targetIndex)}\n    }`);
+            lines.push(`    if (!check_set(ctx, ${compiled.refIndex})) { doom_downstream(${myIndex}); atomic_store(&run_failed, 1); return -1; }\n    if (${compiled.expr}) {\n${setAndReturn(targetIndex)}\n    }`);
         }
         if (!hasElse) {
             lines.push(`    no_matching_branch(STEP_NAMES[${myIndex}]);\n    return -1; /* unreachable */`);
@@ -225,16 +247,18 @@ ${lines.join('\n')}
 
 int ${fnName}(Context *ctx) {
     pthread_mutex_lock(&merge_mutex[${m}]);
-    if (merge_doomed[${m}]) {
-        pthread_mutex_unlock(&merge_mutex[${m}]);
-        return -1;
-    }
     int arrivalCount = ++merge_arrivals[${m}];
     int isLast = (arrivalCount == MERGE_EXPECTED[${m}]);
     pthread_mutex_unlock(&merge_mutex[${m}]);
 
     if (!isLast) {
         printf("%s=merge: waiting (%d/%d arrived)\\n", STEP_NAMES[${myIndex}], arrivalCount, MERGE_EXPECTED[${m}]);
+        return -1;
+    }
+    if (merge_doomed[${m}]) {
+        snprintf(${bufName}, MAX_OUTPUT_LEN, "merge: combined %d arrivals", MERGE_EXPECTED[${m}]);
+        ctx->outputs[${myIndex}] = ${bufName};
+        printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);
         return -1;
     }
     snprintf(${bufName}, MAX_OUTPUT_LEN, "merge: combined %d arrivals", MERGE_EXPECTED[${m}]);
@@ -253,9 +277,17 @@ export function generateC(definition: WorkflowDefinition): string {
     validateReferences(order, index);
     const names = sanitizeStepIds(order);
 
+    const byId = new Map(definition.steps.map(s => [s.id, s]));
     const mergeIndex = computeMergeIndices(order);
     const expectedCounts = computeExpectedCounts(order, mergeIndex);
     const numMerges = mergeIndex.size;
+    const downstreamMerges = computeDownstreamMerges(order, byId, mergeIndex);
+    const downstreamArrays = downstreamMerges
+        .map((merges, i) => (merges.length ? `static const int DOWNSTREAM_MERGES_${i}[] = { ${merges.join(', ')} };` : ''))
+        .filter(Boolean)
+        .join('\n');
+    const downstreamTableLiteral = downstreamMerges.map((merges, i) => (merges.length ? `DOWNSTREAM_MERGES_${i}` : 'NULL')).join(', ');
+    const downstreamCountsLiteral = downstreamMerges.map(merges => merges.length).join(', ');
 
     const stepNamesLiteral = order.map(step => JSON.stringify(step.id)).join(', ');
     const stepFns = order.map(step => generateStepFunction(step, index, names, mergeIndex));
@@ -268,6 +300,7 @@ export function generateC(definition: WorkflowDefinition): string {
 #include <stdlib.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 #define MAX_OUTPUT_LEN 256
 #define NUM_ENTRIES ${entryIndices.length}
@@ -281,12 +314,27 @@ static const int MERGE_EXPECTED[] = { ${numMerges > 0 ? expectedCountsLiteral : 
 static pthread_mutex_t merge_mutex[NUM_MERGES > 0 ? NUM_MERGES : 1] = { PTHREAD_MUTEX_INITIALIZER };
 static int merge_arrivals[NUM_MERGES > 0 ? NUM_MERGES : 1];
 static int merge_doomed[NUM_MERGES > 0 ? NUM_MERGES : 1];
+static atomic_int run_failed = 0;
 
-static void check_set(Context *ctx, int idx) {
+${downstreamArrays}
+static const int *DOWNSTREAM_MERGES[] = { ${downstreamTableLiteral} };
+static const int DOWNSTREAM_MERGES_COUNT[] = { ${downstreamCountsLiteral} };
+
+static void doom_downstream(int stepIndex) {
+    for (int i = 0; i < DOWNSTREAM_MERGES_COUNT[stepIndex]; i++) {
+        int m = DOWNSTREAM_MERGES[stepIndex][i];
+        pthread_mutex_lock(&merge_mutex[m]);
+        merge_doomed[m] = 1;
+        pthread_mutex_unlock(&merge_mutex[m]);
+    }
+}
+
+static int check_set(Context *ctx, int idx) {
     if (ctx->outputs[idx] == NULL) {
         fprintf(stderr, "step \\"%s\\" has no output yet\\n", STEP_NAMES[idx]);
-        exit(1);
+        return 0;
     }
+    return 1;
 }
 
 static int ci_equals(const char *a, const char *b) {
@@ -365,7 +413,7 @@ int main(void) {
     for (int i = 0; i < NUM_ENTRIES; i++) {
         pthread_join(threads[i], NULL);
     }
-    return 0;
+    return atomic_load(&run_failed) ? 1 : 0;
 }
 `;
 }
