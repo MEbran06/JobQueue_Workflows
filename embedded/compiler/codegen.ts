@@ -247,18 +247,16 @@ ${lines.join('\n')}
 
 int ${fnName}(Context *ctx) {
     pthread_mutex_lock(&merge_mutex[${m}]);
+    if (merge_doomed[${m}]) {
+        pthread_mutex_unlock(&merge_mutex[${m}]);
+        return -1;
+    }
     int arrivalCount = ++merge_arrivals[${m}];
     int isLast = (arrivalCount == MERGE_EXPECTED[${m}]);
     pthread_mutex_unlock(&merge_mutex[${m}]);
 
     if (!isLast) {
         printf("%s=merge: waiting (%d/%d arrived)\\n", STEP_NAMES[${myIndex}], arrivalCount, MERGE_EXPECTED[${m}]);
-        return -1;
-    }
-    if (merge_doomed[${m}]) {
-        snprintf(${bufName}, MAX_OUTPUT_LEN, "merge: combined %d arrivals", MERGE_EXPECTED[${m}]);
-        ctx->outputs[${myIndex}] = ${bufName};
-        printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);
         return -1;
     }
     snprintf(${bufName}, MAX_OUTPUT_LEN, "merge: combined %d arrivals", MERGE_EXPECTED[${m}]);

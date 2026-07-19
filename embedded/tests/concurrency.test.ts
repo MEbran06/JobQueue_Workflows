@@ -95,7 +95,6 @@ describe('embedded compiler concurrency', () => {
         expect(exitCode).not.toBe(0);
         expect(lines.has('unrelated=standalone-done')).toBe(true);
         expect(lines.has('var-c=from-c')).toBe(true);
-        expect(lines.has('join=merge: waiting (1/2 arrived)')).toBe(true);
         expect([...lines].some((l) => l.startsWith('boom='))).toBe(false);
         expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
     });
