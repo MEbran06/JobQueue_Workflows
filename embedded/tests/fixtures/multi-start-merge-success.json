@@ -1,0 +1,12 @@
+{
+  "id": "multi-start-merge-success",
+  "name": "Multi Start Merge Success",
+  "entryStepIds": ["start-1", "start-2"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "var-a"},
+    {"id": "var-a", "type": "set_variable", "config": {"value": "from-a"}, "next": "join"},
+    {"id": "start-2", "type": "start", "config": {}, "next": "var-b"},
+    {"id": "var-b", "type": "set_variable", "config": {"value": "from-b"}, "next": "join"},
+    {"id": "join", "type": "merge", "config": {}, "next": null}
+  ]
+}

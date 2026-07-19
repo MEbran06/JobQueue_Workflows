@@ -1,7 +1,7 @@
 import type { WorkflowDefinition, Step } from '../../src/types.js';
 import { sanitizeStepIds } from './identifiers.js';
 
-const SUPPORTED_TYPES = new Set(['start', 'set_variable', 'branch']);
+const SUPPORTED_TYPES = new Set(['start', 'set_variable', 'branch', 'merge']);
 const REFERENCE_RE = /\{\{([\w-]+)\}\}/g;
 const CONDITION_RE = /^\{\{([\w-]+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)$/;
 
@@ -42,6 +42,27 @@ function walkGraph(definition: WorkflowDefinition): WalkResult {
     }
 
     return { order, index };
+}
+
+function computeMergeIndices(order: Step[]): Map<string, number> {
+    const mergeIndex = new Map<string, number>();
+    for (const step of order) {
+        if (step.type === 'merge') mergeIndex.set(step.id, mergeIndex.size);
+    }
+    return mergeIndex;
+}
+
+// Matches src/worker.ts's exact rule: `definition.steps.filter(s => s.next === stepId).length`.
+// Only `.next` counts, never `.branches[].next` - the reference engine never counts branch
+// edges toward a merge's expected arrivals, and no existing workflow relies on it either.
+function computeExpectedCounts(order: Step[], mergeIndex: Map<string, number>): number[] {
+    const counts = new Array<number>(mergeIndex.size).fill(0);
+    for (const step of order) {
+        if (step.next && mergeIndex.has(step.next)) {
+            counts[mergeIndex.get(step.next)!]++;
+        }
+    }
+    return counts;
 }
 
 function extractReferences(template: string): string[] {
@@ -145,7 +166,7 @@ function resolveNext(fromStepId: string, next: string | null, index: Map<string,
     return idx;
 }
 
-function generateStepFunction(step: Step, index: Map<string, number>, names: Map<string, string>): string {
+function generateStepFunction(step: Step, index: Map<string, number>, names: Map<string, string>, mergeIndex: Map<string, number>): string {
     const myIndex = index.get(step.id)!;
     const fnName = `step_${names.get(step.id)}`;
 
@@ -197,6 +218,32 @@ ${lines.join('\n')}
 }`;
     }
 
+    if (step.type === 'merge') {
+        const m = mergeIndex.get(step.id)!;
+        const bufName = `buf_${names.get(step.id)}`;
+        return `static char ${bufName}[MAX_OUTPUT_LEN];
+
+int ${fnName}(Context *ctx) {
+    pthread_mutex_lock(&merge_mutex[${m}]);
+    if (merge_doomed[${m}]) {
+        pthread_mutex_unlock(&merge_mutex[${m}]);
+        return -1;
+    }
+    int arrivalCount = ++merge_arrivals[${m}];
+    int isLast = (arrivalCount == MERGE_EXPECTED[${m}]);
+    pthread_mutex_unlock(&merge_mutex[${m}]);
+
+    if (!isLast) {
+        printf("%s=merge: waiting (%d/%d arrived)\\n", STEP_NAMES[${myIndex}], arrivalCount, MERGE_EXPECTED[${m}]);
+        return -1;
+    }
+    snprintf(${bufName}, MAX_OUTPUT_LEN, "merge: combined %d arrivals", MERGE_EXPECTED[${m}]);
+    ctx->outputs[${myIndex}] = ${bufName};
+    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);
+    return ${resolveNext(step.id, step.next, index)};
+}`;
+    }
+
     throw new Error(`Unsupported step type "${step.type}" reached codegen (should have been caught by validateScope)`);
 }
 
@@ -206,11 +253,16 @@ export function generateC(definition: WorkflowDefinition): string {
     validateReferences(order, index);
     const names = sanitizeStepIds(order);
 
+    const mergeIndex = computeMergeIndices(order);
+    const expectedCounts = computeExpectedCounts(order, mergeIndex);
+    const numMerges = mergeIndex.size;
+
     const stepNamesLiteral = order.map(step => JSON.stringify(step.id)).join(', ');
-    const stepFns = order.map(step => generateStepFunction(step, index, names));
+    const stepFns = order.map(step => generateStepFunction(step, index, names, mergeIndex));
     const tableEntries = order.map(step => `step_${names.get(step.id)}`).join(', ');
     const entryIndices = definition.entryStepIds.map(id => index.get(id)!);
     const entryIndicesLiteral = entryIndices.join(', ');
+    const expectedCountsLiteral = expectedCounts.join(', ');
 
     return `#include <stdio.h>
 #include <stdlib.h>
@@ -219,11 +271,16 @@ export function generateC(definition: WorkflowDefinition): string {
 
 #define MAX_OUTPUT_LEN 256
 #define NUM_ENTRIES ${entryIndices.length}
+#define NUM_MERGES ${numMerges}
 
 typedef struct { char *outputs[${order.length}]; } Context;
 
 static Context ctx;
 static const char *STEP_NAMES[] = { ${stepNamesLiteral} };
+static const int MERGE_EXPECTED[] = { ${numMerges > 0 ? expectedCountsLiteral : '0'} };
+static pthread_mutex_t merge_mutex[NUM_MERGES > 0 ? NUM_MERGES : 1] = { PTHREAD_MUTEX_INITIALIZER };
+static int merge_arrivals[NUM_MERGES > 0 ? NUM_MERGES : 1];
+static int merge_doomed[NUM_MERGES > 0 ? NUM_MERGES : 1];
 
 static void check_set(Context *ctx, int idx) {
     if (ctx->outputs[idx] == NULL) {

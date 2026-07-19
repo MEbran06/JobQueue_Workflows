@@ -69,4 +69,16 @@ describe('embedded compiler concurrency', () => {
         expect(exitCode).toBe(0);
         assertCompiledContainsCompletedSteps(lines, reference.steps);
     });
+
+    it('fires a merge exactly once after both predecessors arrive, matching the reference engine', async () => {
+        const definition = loadFixture('multi-start-merge-success.json');
+        const reference = await referenceRun(definition);
+        expect(reference.overallState).toBe('completed');
+        const joinEntries = reference.steps.filter((s) => s.step === 'join');
+        expect(joinEntries).toHaveLength(2);
+
+        const { lines, exitCode } = compiledRun(definition);
+        expect(exitCode).toBe(0);
+        assertCompiledContainsCompletedSteps(lines, reference.steps);
+    });
 });
