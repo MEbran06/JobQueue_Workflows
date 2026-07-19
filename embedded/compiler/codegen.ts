@@ -188,7 +188,7 @@ function resolveNext(fromStepId: string, next: string | null, index: Map<string,
     return idx;
 }
 
-function generateStepFunction(step: Step, index: Map<string, number>, names: Map<string, string>, mergeIndex: Map<string, number>): string {
+function generateStepFunction(step: Step, index: Map<string, number>, names: Map<string, string>, mergeIndex: Map<string, number>, downstreamMerges: number[][]): string {
     const myIndex = index.get(step.id)!;
     const fnName = `step_${names.get(step.id)}`;
 
@@ -218,9 +218,17 @@ ${guards}    snprintf(${bufName}, MAX_OUTPUT_LEN, ${JSON.stringify(format)}${arg
 
     if (step.type === 'branch') {
         const branches = step.branches ?? [];
+        const allTargets = branches.map(b => resolveNext(step.id, b.next, index));
+        const setAndReturn = (chosenTarget: number) => {
+            const excludedTargets = allTargets.filter(t => t !== chosenTarget);
+            const doomCalls = excludedTargets
+                .map(t => `    doom_downstream(${t});\n`)
+                .join('');
+            const hasExcludedDownstream = excludedTargets.some(t => downstreamMerges[t].length > 0);
+            const setRunFailed = hasExcludedDownstream ? `    atomic_store(&run_failed, 1);\n` : '';
+            return `${doomCalls}${setRunFailed}    ctx->outputs[${myIndex}] = "";\n    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);\n    return ${chosenTarget};`;
+        };
         const lines: string[] = [];
-        const setAndReturn = (targetIndex: number) =>
-            `    ctx->outputs[${myIndex}] = "";\n    printf("%s=%s\\n", STEP_NAMES[${myIndex}], ctx->outputs[${myIndex}]);\n    return ${targetIndex};`;
         let hasElse = false;
         for (const b of branches) {
             const targetIndex = resolveNext(step.id, b.next, index);
@@ -233,7 +241,7 @@ ${guards}    snprintf(${bufName}, MAX_OUTPUT_LEN, ${JSON.stringify(format)}${arg
             lines.push(`    if (!check_set(ctx, ${compiled.refIndex})) { doom_downstream(${myIndex}); atomic_store(&run_failed, 1); return -1; }\n    if (${compiled.expr}) {\n${setAndReturn(targetIndex)}\n    }`);
         }
         if (!hasElse) {
-            lines.push(`    no_matching_branch(STEP_NAMES[${myIndex}]);\n    return -1; /* unreachable */`);
+            lines.push(`    no_matching_branch(STEP_NAMES[${myIndex}]);\n    doom_downstream(${myIndex});\n    atomic_store(&run_failed, 1);\n    return -1;`);
         }
         return `int ${fnName}(Context *ctx) {
 ${lines.join('\n')}
@@ -288,7 +296,7 @@ export function generateC(definition: WorkflowDefinition): string {
     const downstreamCountsLiteral = downstreamMerges.map(merges => merges.length).join(', ');
 
     const stepNamesLiteral = order.map(step => JSON.stringify(step.id)).join(', ');
-    const stepFns = order.map(step => generateStepFunction(step, index, names, mergeIndex));
+    const stepFns = order.map(step => generateStepFunction(step, index, names, mergeIndex, downstreamMerges));
     const tableEntries = order.map(step => `step_${names.get(step.id)}`).join(', ');
     const entryIndices = definition.entryStepIds.map(id => index.get(id)!);
     const entryIndicesLiteral = entryIndices.join(', ');
@@ -361,7 +369,6 @@ static int ci_contains(const char *haystack, const char *needle) {
 
 static void no_matching_branch(const char *stepName) {
     fprintf(stderr, "No matching branch condition in step \\"%s\\"\\n", stepName);
-    exit(1);
 }
 
 static int strict_parse_double(const char *s, double *out) {

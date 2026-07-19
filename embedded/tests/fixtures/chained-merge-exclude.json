@@ -1,0 +1,21 @@
+{
+  "id": "chained-merge-exclude",
+  "name": "Chained Merge Exclude",
+  "entryStepIds": ["start-1", "start-2", "start-3"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "the-branch"},
+    {"id": "the-branch", "type": "branch", "config": {}, "next": null, "branches": [
+      {"condition": "{{start-1}} equals never-matches", "next": "path-a"},
+      {"condition": "else", "next": "path-b"}
+    ]},
+    {"id": "path-a", "type": "set_variable", "config": {"value": "from-a"}, "next": "m1"},
+    {"id": "path-b", "type": "set_variable", "config": {"value": "from-b"}, "next": null},
+    {"id": "start-2", "type": "start", "config": {}, "next": "var-c"},
+    {"id": "var-c", "type": "set_variable", "config": {"value": "from-c"}, "next": "m1"},
+    {"id": "m1", "type": "merge", "config": {}, "next": "m2"},
+    {"id": "start-3", "type": "start", "config": {}, "next": "var-d"},
+    {"id": "var-d", "type": "set_variable", "config": {"value": "from-d"}, "next": "m2"},
+    {"id": "m2", "type": "merge", "config": {}, "next": "final"},
+    {"id": "final", "type": "set_variable", "config": {"value": "done"}, "next": null}
+  ]
+}

@@ -98,4 +98,41 @@ describe('embedded compiler concurrency', () => {
         expect([...lines].some((l) => l.startsWith('boom='))).toBe(false);
         expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
     });
+
+    it('dooms a merge when a branch excludes one of its predecessors', async () => {
+        const definition = loadFixture('branch-excludes-merge.json');
+
+        const reference = await referenceRun(definition);
+        expect(reference.overallState).toBe('failed');
+        expect(reference.steps.find((s) => s.step === 'path-a')).toBeUndefined();
+        expect(reference.steps.find((s) => s.step === 'final')).toBeUndefined();
+        expect(reference.steps.find((s) => s.step === 'unrelated')?.state).toBe('completed');
+
+        const { lines, exitCode } = compiledRun(definition);
+        expect(exitCode).not.toBe(0);
+        expect(lines.has('unrelated=standalone-done')).toBe(true);
+        expect(lines.has('var-c=from-c')).toBe(true);
+        expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
+        expect([...lines].some((l) => l.startsWith('final='))).toBe(false);
+    });
+
+    it('dooms both merges in a chain from a single branch resolution', async () => {
+        const definition = loadFixture('chained-merge-exclude.json');
+
+        const reference = await referenceRun(definition);
+        expect(reference.overallState).toBe('failed');
+        const m1Ref = reference.steps.filter((s) => s.step === 'm1');
+        const m2Ref = reference.steps.filter((s) => s.step === 'm2');
+        expect(m1Ref).toHaveLength(1);
+        expect(m2Ref).toHaveLength(1);
+        expect(m1Ref[0]?.state).toBe('failed');
+        expect(m2Ref[0]?.state).toBe('failed');
+
+        const { lines, exitCode } = compiledRun(definition);
+        expect(exitCode).not.toBe(0);
+        expect(lines.has('var-c=from-c')).toBe(true);
+        expect(lines.has('var-d=from-d')).toBe(true);
+        expect([...lines].some((l) => l.startsWith('path-a='))).toBe(false);
+        expect([...lines].some((l) => l.startsWith('final='))).toBe(false);
+    });
 });
