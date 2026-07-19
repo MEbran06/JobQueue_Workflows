@@ -6,8 +6,8 @@ const REFERENCE_RE = /\{\{([\w-]+)\}\}/g;
 const CONDITION_RE = /^\{\{([\w-]+)\}\}\s+(contains|equals|notEquals|startsWith|lessThan|greaterThan)\s+(.+)$/;
 
 function validateScope(definition: WorkflowDefinition): void {
-    if (definition.entryStepIds.length !== 1) {
-        throw new Error(`Expected exactly 1 entry step, got ${definition.entryStepIds.length}`);
+    if (definition.entryStepIds.length < 1) {
+        throw new Error(`Expected at least 1 entry step, got ${definition.entryStepIds.length}`);
     }
     for (const step of definition.steps) {
         if (!SUPPORTED_TYPES.has(step.type)) {
@@ -28,7 +28,7 @@ function walkGraph(definition: WorkflowDefinition): WalkResult {
     const byId = new Map(definition.steps.map(s => [s.id, s]));
     const index = new Map<string, number>();
     const order: Step[] = [];
-    const queue = [definition.entryStepIds[0]];
+    const queue = [...definition.entryStepIds];
 
     while (queue.length) {
         const stepId = queue.shift()!;
@@ -209,15 +209,20 @@ export function generateC(definition: WorkflowDefinition): string {
     const stepNamesLiteral = order.map(step => JSON.stringify(step.id)).join(', ');
     const stepFns = order.map(step => generateStepFunction(step, index, names));
     const tableEntries = order.map(step => `step_${names.get(step.id)}`).join(', ');
+    const entryIndices = definition.entryStepIds.map(id => index.get(id)!);
+    const entryIndicesLiteral = entryIndices.join(', ');
 
     return `#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <pthread.h>
 
 #define MAX_OUTPUT_LEN 256
+#define NUM_ENTRIES ${entryIndices.length}
 
 typedef struct { char *outputs[${order.length}]; } Context;
 
+static Context ctx;
 static const char *STEP_NAMES[] = { ${stepNamesLiteral} };
 
 static void check_set(Context *ctx, int idx) {
@@ -285,11 +290,23 @@ ${stepFns.join('\n\n')}
 typedef int (*StepFn)(Context*);
 static const StepFn STEP_TABLE[] = { ${tableEntries} };
 
-int main(void) {
-    Context ctx = {0};
-    int current = 0;
+static int entry_indices[NUM_ENTRIES] = { ${entryIndicesLiteral} };
+
+void *chain_thread(void *arg) {
+    int current = *(int *)arg;
     while (current >= 0) {
         current = STEP_TABLE[current](&ctx);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t threads[NUM_ENTRIES];
+    for (int i = 0; i < NUM_ENTRIES; i++) {
+        pthread_create(&threads[i], NULL, chain_thread, &entry_indices[i]);
+    }
+    for (int i = 0; i < NUM_ENTRIES; i++) {
+        pthread_join(threads[i], NULL);
     }
     return 0;
 }

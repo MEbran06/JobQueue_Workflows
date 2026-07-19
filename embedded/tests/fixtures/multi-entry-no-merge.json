@@ -1,0 +1,11 @@
+{
+  "id": "multi-entry-no-merge",
+  "name": "Multi Entry No Merge",
+  "entryStepIds": ["start-1", "start-2"],
+  "steps": [
+    {"id": "start-1", "type": "start", "config": {}, "next": "set-1"},
+    {"id": "set-1", "type": "set_variable", "config": {"value": "from-chain-1"}, "next": null},
+    {"id": "start-2", "type": "start", "config": {}, "next": "set-2"},
+    {"id": "set-2", "type": "set_variable", "config": {"value": "from-chain-2"}, "next": null}
+  ]
+}
